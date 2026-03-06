@@ -1,24 +1,32 @@
 // ============================================
-// SmartRoute v5.0 - Main UI Controller
+// SmartRoute v7.0 - Agentic AI Frontend
+// Real-time agent monitoring and automation
 // ============================================
 
 const API_BASE_URL = 'http://localhost:8000';
 
 let currentItinerary = null;
+let websocket = null;
+let agentActivities = [];
+let bookingResults = {
+    hotels: [],
+    flights: [],
+    restaurants: []
+};
 
 // ============================================
 // Initialize Application
 // ============================================
 
 function initializeApp() {
-    console.log('🚀 Initializing SmartRoute v5.0...');
+    console.log('🤖 Initializing SmartRoute v7.0 - Agentic AI...');
     
     // Initialize map
     if (typeof initMap === 'function') {
         initMap();
     }
     
-    // Set default date to today
+    // Set default date
     const dateInput = document.getElementById('startDate');
     if (dateInput) {
         dateInput.value = new Date().toISOString().split('T')[0];
@@ -30,7 +38,113 @@ function initializeApp() {
     // Setup event listeners
     setupEventListeners();
     
-    console.log('✅ Application initialized');
+    // Connect to WebSocket for real-time agent updates
+    connectWebSocket();
+    
+    console.log('✅ Agentic AI system initialized');
+}
+
+// ============================================
+// WebSocket Connection for Real-Time Updates
+// ============================================
+
+function connectWebSocket() {
+    try {
+        websocket = new WebSocket('ws://localhost:8000/ws/agents');
+        
+        websocket.onopen = () => {
+            console.log('🔌 Connected to agent activity stream');
+            showToast('Connected to AI agents', 'success');
+        };
+        
+        websocket.onmessage = (event) => {
+            const activity = JSON.parse(event.data);
+            handleAgentActivity(activity);
+        };
+        
+        websocket.onerror = (error) => {
+            console.error('❌ WebSocket error:', error);
+        };
+        
+        websocket.onclose = () => {
+            console.log('🔌 Disconnected from agent stream');
+            // Reconnect after 5 seconds
+            setTimeout(connectWebSocket, 5000);
+        };
+    } catch (error) {
+        console.error('❌ WebSocket connection failed:', error);
+    }
+}
+
+function handleAgentActivity(activity) {
+    console.log('🤖 Agent Activity:', activity);
+    
+    // Add to activities log
+    agentActivities.push(activity);
+    
+    // Update agent status display
+    updateAgentDisplay(activity);
+    
+    // Add to real-time log
+    addToActivityLog(activity);
+    
+    // Show toast for important activities
+    if (activity.message.includes('✅')) {
+        showToast(`${activity.agent_name}: Task completed`, 'success');
+    }
+}
+
+function updateAgentDisplay(activity) {
+    const agentId = activity.agent_id;
+    const agentElement = document.getElementById(`agent-${agentId}`);
+    
+    if (agentElement) {
+        const statusDot = agentElement.querySelector('.agent-status-dot');
+        const statusText = agentElement.querySelector('.agent-status-text');
+        const activityText = agentElement.querySelector('.agent-activity');
+        
+        // Update status dot color
+        if (statusDot) {
+            statusDot.className = 'agent-status-dot';
+            if (activity.status === 'working') {
+                statusDot.classList.add('status-working');
+            } else if (activity.status === 'completed') {
+                statusDot.classList.add('status-completed');
+            } else if (activity.status === 'error') {
+                statusDot.classList.add('status-error');
+            }
+        }
+        
+        // Update status text
+        if (statusText) {
+            statusText.textContent = activity.status.toUpperCase();
+        }
+        
+        // Update activity text
+        if (activityText) {
+            activityText.textContent = activity.message;
+        }
+    }
+}
+
+function addToActivityLog(activity) {
+    const logContainer = document.getElementById('agentActivityLog');
+    if (!logContainer) return;
+    
+    const logEntry = document.createElement('div');
+    logEntry.className = 'log-entry';
+    logEntry.innerHTML = `
+        <div class="log-timestamp">${new Date(activity.timestamp).toLocaleTimeString()}</div>
+        <div class="log-agent">${activity.agent_name}</div>
+        <div class="log-message">${activity.message}</div>
+    `;
+    
+    logContainer.insertBefore(logEntry, logContainer.firstChild);
+    
+    // Keep only last 50 entries
+    while (logContainer.children.length > 50) {
+        logContainer.removeChild(logContainer.lastChild);
+    }
 }
 
 // ============================================
@@ -44,7 +158,13 @@ function setupEventListeners() {
         generateBtn.addEventListener('click', handleGenerateTrip);
     }
     
-    // Modal close button
+    // Autonomous planning button
+    const autonomousBtn = document.getElementById('autonomousPlanBtn');
+    if (autonomousBtn) {
+        autonomousBtn.addEventListener('click', handleAutonomousPlanning);
+    }
+    
+    // Modal close
     const modalClose = document.querySelector('.modal-close');
     if (modalClose) {
         modalClose.addEventListener('click', closeMediaModal);
@@ -75,18 +195,60 @@ async function checkBackendHealth() {
         console.log('🏥 Backend health:', data);
         
         if (data.status === 'healthy') {
-            showToast('Connected to SmartRoute backend', 'success');
-        } else {
-            showToast('Backend connection issues', 'warning');
+            showToast(`${data.agents_total} AI agents ready`, 'success');
+            
+            // Load agent status
+            loadAgentStatus();
         }
     } catch (error) {
         console.error('❌ Backend health check failed:', error);
-        showToast('Backend not available - using offline mode', 'warning');
+        showToast('Backend unavailable - check if server is running', 'error');
     }
 }
 
+async function loadAgentStatus() {
+    try {
+        const response = await fetch(`${API_BASE_URL}/agents/status`);
+        const data = await response.json();
+        
+        console.log('🤖 Agent status:', data);
+        
+        // Display agents in sidebar
+        displayAgents(data.agents);
+    } catch (error) {
+        console.error('❌ Failed to load agent status:', error);
+    }
+}
+
+function displayAgents(agents) {
+    const container = document.getElementById('agentsContainer');
+    if (!container) return;
+    
+    container.innerHTML = agents.map(agent => `
+        <div class="agent-card" id="agent-${agent.id}">
+            <div class="agent-header">
+                <div class="agent-icon">🤖</div>
+                <div class="agent-info">
+                    <div class="agent-name">${agent.name}</div>
+                    <div class="agent-role">${agent.role}</div>
+                </div>
+                <div class="agent-status-dot"></div>
+            </div>
+            <div class="agent-status-text">${agent.status.toUpperCase()}</div>
+            <div class="agent-activity">Idle</div>
+            <div class="agent-stats">
+                <span>✅ ${agent.completed_tasks} tasks</span>
+            </div>
+        </div>
+    `).join('');
+}
+
+// ============================================
+// Trip Generation
+// ============================================
+
 async function handleGenerateTrip() {
-    console.log('🎯 Generating trip...');
+    console.log('🎯 Starting agentic trip generation...');
     
     // Get form values
     const destination = document.getElementById('destination')?.value;
@@ -95,11 +257,11 @@ async function handleGenerateTrip() {
     const startDate = document.getElementById('startDate')?.value;
     const persona = document.getElementById('personaSelect')?.value || 'solo';
     
-    // Get selected preferences
-    const preferences = [];
-    document.querySelectorAll('.preference-tag.active').forEach(tag => {
-        preferences.push(tag.dataset.preference);
-    });
+    // Get booking options
+    const includeFlights = document.getElementById('includeFlights')?.checked || false;
+    const includeHotels = document.getElementById('includeHotels')?.checked !== false;
+    const includeRestaurants = document.getElementById('includeRestaurants')?.checked !== false;
+    const includeTransport = document.getElementById('includeTransport')?.checked !== false;
     
     // Validation
     if (!destination || destination.trim() === '') {
@@ -117,14 +279,26 @@ async function handleGenerateTrip() {
         duration,
         budget,
         start_date: startDate,
-        preferences: preferences.length > 0 ? preferences : ['cultural', 'adventure', 'food'],
-        persona
+        preferences: ['cultural', 'adventure', 'food'],
+        persona,
+        include_flights: includeFlights,
+        include_hotels: includeHotels,
+        include_restaurants: includeRestaurants,
+        include_transport: includeTransport
     };
     
     console.log('📝 Trip request:', tripRequest);
     
     // Show loading
     showLoading(true);
+    showToast('🤖 AI agents are planning your trip...', 'info');
+    
+    // Clear previous activities
+    agentActivities = [];
+    const logContainer = document.getElementById('agentActivityLog');
+    if (logContainer) {
+        logContainer.innerHTML = '';
+    }
     
     try {
         const response = await fetch(`${API_BASE_URL}/generate-trip`, {
@@ -141,12 +315,17 @@ async function handleGenerateTrip() {
         
         const data = await response.json();
         
-        if (data.success && data.itinerary) {
-            console.log('✅ Itinerary generated:', data.itinerary);
-            currentItinerary = data.itinerary;
+        if (data.success) {
+            console.log('✅ Trip generated:', data);
             
-            // Display itinerary
+            currentItinerary = data.itinerary;
+            bookingResults = data.bookings;
+            
+            // Display everything
             displayItinerary(data.itinerary);
+            displayBookings(data.bookings);
+            displayBudgetBreakdown(data.budget_breakdown);
+            displayAgentSummary(data.agent_summary);
             
             // Update map
             if (typeof updateMapWithItinerary === 'function') {
@@ -156,7 +335,7 @@ async function handleGenerateTrip() {
             // Update budget tracker
             updateBudgetTracker(data.itinerary);
             
-            showToast('Trip generated successfully!', 'success');
+            showToast('✅ Complete trip plan ready!', 'success');
         } else {
             throw new Error('Invalid response from server');
         }
@@ -165,13 +344,33 @@ async function handleGenerateTrip() {
         console.error('❌ Error generating trip:', error);
         showToast(`Error: ${error.message}`, 'error');
         
-        // Fallback to demo itinerary
-        console.log('📝 Using fallback demo itinerary');
-        generateDemoItinerary(tripRequest);
-        
     } finally {
         showLoading(false);
     }
+}
+
+// ============================================
+// Autonomous Planning (Full Automation)
+// ============================================
+
+async function handleAutonomousPlanning() {
+    showToast('🤖 Agents taking full control...', 'info');
+    
+    // Show autonomous mode panel
+    const autonomousPanel = document.getElementById('autonomousPanel');
+    if (autonomousPanel) {
+        autonomousPanel.style.display = 'block';
+    }
+    
+    // Let agents work automatically with minimal input
+    const destination = document.getElementById('destination')?.value || 'Paris';
+    const budget = parseFloat(document.getElementById('budget')?.value || '50000');
+    
+    // Agents decide everything else
+    showToast('🤖 Agents analyzing best options...', 'info');
+    
+    // Trigger full autonomous planning
+    await handleGenerateTrip();
 }
 
 // ============================================
@@ -180,10 +379,7 @@ async function handleGenerateTrip() {
 
 function displayItinerary(itinerary) {
     const container = document.getElementById('itineraryContainer');
-    if (!container) {
-        console.error('❌ Itinerary container not found');
-        return;
-    }
+    if (!container) return;
     
     if (!itinerary || !itinerary.days || itinerary.days.length === 0) {
         container.innerHTML = '<p class="text-center">No itinerary to display</p>';
@@ -193,7 +389,7 @@ function displayItinerary(itinerary) {
     let html = '';
     
     itinerary.days.forEach((day, index) => {
-        const dayDate = new Date(day.date || Date.now());
+        const dayDate = new Date(day.date);
         const formattedDate = dayDate.toLocaleDateString('en-US', { 
             weekday: 'short', 
             month: 'short', 
@@ -204,7 +400,7 @@ function displayItinerary(itinerary) {
             <div class="day-card" data-day="${day.day}">
                 <div class="day-header">
                     <div>
-                        <div class="day-title">Day ${day.day} - ${day.city || 'Unknown City'}</div>
+                        <div class="day-title">Day ${day.day} - ${day.city}</div>
                         <div class="day-date">${formattedDate}</div>
                     </div>
                     <div class="day-cost">₹${(day.daily_cost || 0).toLocaleString()}</div>
@@ -212,25 +408,23 @@ function displayItinerary(itinerary) {
                 <div class="activities-container">
                     ${(day.activities || []).map((activity, actIndex) => `
                         <div class="activity-card type-${activity.type || 'default'}" 
-                             data-activity-index="${actIndex}"
                              onclick="showActivityDetails(${index}, ${actIndex})">
-                            <div class="activity-header">
-                                <div class="activity-name">${activity.name || 'Activity'}</div>
-                                <div class="activity-time">⏰ ${activity.time || 'TBD'}</div>
-                            </div>
-                            <div class="activity-details">
-                                <span>⏱️ ${activity.duration || 'N/A'}</span>
-                                <span>💰 ₹${(activity.cost || 0).toLocaleString()}</span>
-                                <span>📍 ${activity.type || 'Activity'}</span>
-                            </div>
-                            ${activity.description ? `
-                                <div class="activity-description">${activity.description}</div>
-                            ` : ''}
-                            ${activity.media ? `
+                            <div class="activity-image" style="background-image: url('${activity.photo || 'https://images.pexels.com/photos/460672/pexels-photo-460672.jpeg'}')"></div>
+                            <div class="activity-content">
+                                <div class="activity-header">
+                                    <div class="activity-name">${activity.name}</div>
+                                    <div class="activity-rating">⭐ ${activity.rating || 4.5}</div>
+                                </div>
+                                <div class="activity-description">${activity.description || ''}</div>
+                                <div class="activity-details">
+                                    <span>⏰ ${activity.time}</span>
+                                    <span>⏱️ ${activity.duration}</span>
+                                    <span>💰 ₹${(activity.cost || 0).toLocaleString()}</span>
+                                </div>
                                 <button class="activity-media-btn" onclick="event.stopPropagation(); showActivityMedia('${activity.name}', ${JSON.stringify(activity.media).replace(/"/g, '&quot;')})">
                                     📸 View Photos & Videos
                                 </button>
-                            ` : ''}
+                            </div>
                         </div>
                     `).join('')}
                 </div>
@@ -242,7 +436,7 @@ function displayItinerary(itinerary) {
     const totalCost = itinerary.total_cost || itinerary.days.reduce((sum, day) => sum + (day.daily_cost || 0), 0);
     html += `
         <div class="itinerary-summary">
-            <h3>Trip Summary</h3>
+            <h3>🎯 Trip Summary</h3>
             <div class="summary-stats">
                 <div class="stat-item">
                     <div class="stat-label">Total Days</div>
@@ -253,10 +447,6 @@ function displayItinerary(itinerary) {
                     <div class="stat-value">₹${totalCost.toLocaleString()}</div>
                 </div>
                 <div class="stat-item">
-                    <div class="stat-label">Cities</div>
-                    <div class="stat-value">${(itinerary.cities || ['1']).length}</div>
-                </div>
-                <div class="stat-item">
                     <div class="stat-label">Activities</div>
                     <div class="stat-value">${itinerary.days.reduce((sum, day) => sum + (day.activities?.length || 0), 0)}</div>
                 </div>
@@ -265,59 +455,125 @@ function displayItinerary(itinerary) {
     `;
     
     container.innerHTML = html;
+    console.log('✅ Itinerary displayed with real attractions');
+}
+
+function displayBookings(bookings) {
+    if (!bookings) return;
     
-    // Add CSS for summary if not exists
-    if (!document.getElementById('itinerary-summary-style')) {
-        const style = document.createElement('style');
-        style.id = 'itinerary-summary-style';
-        style.textContent = `
-            .itinerary-summary {
-                background: rgba(255, 255, 255, 0.03);
-                border: 1px solid rgba(255, 255, 255, 0.1);
-                border-radius: 16px;
-                padding: 24px;
-                margin-top: 24px;
-            }
-            .itinerary-summary h3 {
-                font-size: 24px;
-                font-weight: 800;
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                -webkit-background-clip: text;
-                -webkit-text-fill-color: transparent;
-                margin-bottom: 20px;
-            }
-            .summary-stats {
-                display: grid;
-                grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-                gap: 16px;
-            }
-            .stat-item {
-                text-align: center;
-                padding: 16px;
-                background: rgba(102, 126, 234, 0.1);
-                border-radius: 12px;
-            }
-            .stat-label {
-                font-size: 14px;
-                color: #a0a0b2;
-                margin-bottom: 8px;
-            }
-            .stat-value {
-                font-size: 24px;
-                font-weight: 700;
-                color: #667eea;
-            }
-            .activity-description {
-                margin-top: 8px;
-                font-size: 14px;
-                color: #a0a0b2;
-                line-height: 1.5;
-            }
-        `;
-        document.head.appendChild(style);
+    // Display hotels
+    if (bookings.hotels && bookings.hotels.length > 0) {
+        displayHotels(bookings.hotels);
     }
     
-    console.log('✅ Itinerary displayed');
+    // Display flights
+    if (bookings.flights && bookings.flights.length > 0) {
+        displayFlights(bookings.flights);
+    }
+    
+    // Display restaurants
+    if (bookings.restaurants && bookings.restaurants.length > 0) {
+        displayRestaurants(bookings.restaurants);
+    }
+}
+
+function displayHotels(hotels) {
+    const container = document.getElementById('hotelsContainer');
+    if (!container) return;
+    
+    container.innerHTML = `
+        <h3>🏨 Recommended Hotels</h3>
+        <div class="booking-grid">
+            ${hotels.map(hotel => `
+                <div class="booking-card hotel-card">
+                    <div class="booking-image" style="background-image: url('${hotel.photo}')"></div>
+                    <div class="booking-info">
+                        <div class="booking-name">${hotel.name}</div>
+                        <div class="booking-rating">⭐ ${hotel.rating}</div>
+                        <div class="booking-price">₹${hotel.price_per_night.toLocaleString()}/night</div>
+                        <div class="booking-amenities">
+                            ${hotel.amenities.map(a => `<span class="amenity">${a}</span>`).join('')}
+                        </div>
+                        <a href="${hotel.booking_url}" target="_blank" class="booking-btn">
+                            Book Now →
+                        </a>
+                    </div>
+                </div>
+            `).join('')}
+        </div>
+    `;
+}
+
+function displayFlights(flights) {
+    const container = document.getElementById('flightsContainer');
+    if (!container) return;
+    
+    container.innerHTML = `
+        <h3>✈️ Available Flights</h3>
+        <div class="booking-list">
+            ${flights.map(flight => `
+                <div class="booking-card flight-card">
+                    <div class="flight-info">
+                        <div class="flight-airline">${flight.airline}</div>
+                        <div class="flight-time">${flight.departure} → ${flight.arrival}</div>
+                        <div class="flight-duration">${flight.duration}</div>
+                    </div>
+                    <div class="flight-price">₹${flight.price.toLocaleString()}</div>
+                    <a href="${flight.booking_url}" target="_blank" class="booking-btn">Book</a>
+                </div>
+            `).join('')}
+        </div>
+    `;
+}
+
+function displayRestaurants(restaurants) {
+    const container = document.getElementById('restaurantsContainer');
+    if (!container) return;
+    
+    container.innerHTML = `
+        <h3>🍽️ Recommended Restaurants</h3>
+        <div class="booking-grid">
+            ${restaurants.map(restaurant => `
+                <div class="booking-card restaurant-card">
+                    <div class="booking-image" style="background-image: url('${restaurant.photo}')"></div>
+                    <div class="booking-info">
+                        <div class="booking-name">${restaurant.name}</div>
+                        <div class="booking-rating">⭐ ${restaurant.rating}</div>
+                        <div class="booking-price">${restaurant.price_range}</div>
+                        <div class="booking-cuisine">${restaurant.cuisine}</div>
+                        <a href="${restaurant.booking_url}" target="_blank" class="booking-btn">
+                            Reserve Table →
+                        </a>
+                    </div>
+                </div>
+            `).join('')}
+        </div>
+    `;
+}
+
+function displayBudgetBreakdown(breakdown) {
+    if (!breakdown) return;
+    
+    const container = document.getElementById('budgetBreakdownContainer');
+    if (!container) return;
+    
+    container.innerHTML = `
+        <h3>💰 Budget Allocation</h3>
+        <div class="budget-breakdown">
+            ${Object.entries(breakdown).map(([category, amount]) => `
+                <div class="budget-item">
+                    <span class="budget-category">${category}</span>
+                    <span class="budget-amount">₹${amount.toLocaleString()}</span>
+                </div>
+            `).join('')}
+        </div>
+    `;
+}
+
+function displayAgentSummary(summary) {
+    if (!summary) return;
+    
+    showToast(`✅ ${summary.agents_used} agents completed ${summary.tasks_completed} tasks in ${summary.total_time}`, 'success');
 }
 
 function updateBudgetTracker(itinerary) {
@@ -339,104 +595,19 @@ function updateBudgetTracker(itinerary) {
 }
 
 // ============================================
-// Demo Fallback
-// ============================================
-
-function generateDemoItinerary(request) {
-    const demoItinerary = {
-        days: [
-            {
-                day: 1,
-                date: request.start_date,
-                city: request.destination,
-                activities: [
-                    {
-                        name: `${request.destination} City Tour`,
-                        time: '09:00',
-                        duration: '3 hours',
-                        cost: 1000,
-                        type: 'cultural',
-                        description: 'Explore the beautiful city landmarks',
-                        lat: 28.6139 + Math.random() * 0.1,
-                        lon: 77.2090 + Math.random() * 0.1,
-                        media: {
-                            photos: [
-                                `https://source.unsplash.com/800x600/?${request.destination},city`,
-                                `https://source.unsplash.com/800x600/?${request.destination},landmark`
-                            ],
-                            videos: {
-                                youtube_search: `https://www.youtube.com/results?search_query=${request.destination}+travel+guide`
-                            },
-                            reviews: {
-                                google: `https://www.google.com/search?q=${request.destination}+reviews`,
-                                tripadvisor: `https://www.tripadvisor.com/Search?q=${request.destination}`
-                            },
-                            maps: {
-                                google: `https://www.google.com/maps/search/?api=1&query=${request.destination}`,
-                                osm: `https://www.openstreetmap.org/search?query=${request.destination}`
-                            }
-                        }
-                    },
-                    {
-                        name: 'Local Food Market',
-                        time: '13:00',
-                        duration: '2 hours',
-                        cost: 800,
-                        type: 'food',
-                        description: 'Taste authentic local cuisine',
-                        lat: 28.6139 + Math.random() * 0.1,
-                        lon: 77.2090 + Math.random() * 0.1,
-                        media: {
-                            photos: [
-                                `https://source.unsplash.com/800x600/?${request.destination},food`
-                            ],
-                            videos: {
-                                youtube_search: `https://www.youtube.com/results?search_query=${request.destination}+food`
-                            },
-                            reviews: {
-                                google: `https://www.google.com/search?q=${request.destination}+food+reviews`
-                            }
-                        }
-                    }
-                ],
-                daily_cost: 1800
-            }
-        ],
-        total_cost: 1800,
-        cities: [request.destination]
-    };
-    
-    currentItinerary = demoItinerary;
-    displayItinerary(demoItinerary);
-    
-    if (typeof updateMapWithItinerary === 'function') {
-        updateMapWithItinerary(demoItinerary);
-    }
-    
-    showToast('Demo itinerary loaded (backend unavailable)', 'info');
-}
-
-// ============================================
 // UI Helpers
 // ============================================
 
 function showLoading(show) {
     const overlay = document.getElementById('loadingOverlay');
     if (overlay) {
-        if (show) {
-            overlay.classList.add('active');
-        } else {
-            overlay.classList.remove('active');
-        }
+        overlay.classList.toggle('active', show);
     }
 }
 
 function showToast(message, type = 'info') {
     const container = document.getElementById('toastContainer');
-    if (!container) {
-        console.warn('Toast container not found');
-        return;
-    }
+    if (!container) return;
     
     const toast = document.createElement('div');
     toast.className = `toast ${type}`;
@@ -469,23 +640,9 @@ window.showActivityDetails = function(dayIndex, activityIndex) {
     if (!currentItinerary) return;
     
     const activity = currentItinerary.days[dayIndex]?.activities[activityIndex];
-    if (!activity) return;
+    if (!activity || !activity.media) return;
     
-    console.log('Activity details:', activity);
-    
-    if (activity.media) {
-        showActivityMedia(activity.name, activity.media);
-    }
-};
-
-// ============================================
-// Theme Toggle
-// ============================================
-
-window.toggleTheme = function() {
-    document.body.classList.toggle('dark-mode');
-    document.body.classList.toggle('light-mode');
-    showToast('Theme toggled', 'info');
+    showActivityMedia(activity.name, activity.media);
 };
 
 // ============================================
@@ -493,7 +650,7 @@ window.toggleTheme = function() {
 // ============================================
 
 window.startAutoDemo = function() {
-    showToast('Starting demo mode...', 'info');
+    showToast('🤖 Starting autonomous demo mode...', 'info');
     
     // Set demo values
     document.getElementById('destination').value = 'Paris';
@@ -506,6 +663,15 @@ window.startAutoDemo = function() {
 };
 
 // ============================================
+// Theme Toggle
+// ============================================
+
+window.toggleTheme = function() {
+    document.body.classList.toggle('dark-mode');
+    document.body.classList.toggle('light-mode');
+};
+
+// ============================================
 // Initialize on Load
 // ============================================
 
@@ -515,4 +681,4 @@ if (document.readyState === 'loading') {
     initializeApp();
 }
 
-console.log('✅ Main UI module loaded');
+console.log('✅ SmartRoute v7.0 - Agentic AI Frontend loaded');

@@ -1,0 +1,4 @@
+ python -m http.server 8080
+  uvicorn smartroute_server:app --reload
+
+   python smartroute_server.py

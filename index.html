@@ -1,303 +1,422 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SmartRoute v5.0 - AI Travel Planning</title>
-    
-    <!-- Fonts -->
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
-    
-    <!-- Icons -->
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css">
-    
-    <!-- Leaflet CSS (FREE OpenStreetMap) -->
+    <title>SmartRoute v8.0 — AI Travel Intelligence</title>
+    <meta name="description"
+        content="Multi-Agent Autonomous Travel Intelligence System with 7 specialized AI agents, MDP/RL, Bayesian inference, and beautiful modern UI.">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.5.0/css/all.min.css">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    
-    <!-- Styles -->
-    <link rel="stylesheet" href="css/perfect.css">
+    <link rel="stylesheet" href="css/app.css">
 </head>
-<body class="dark-mode">
-    <!-- Header -->
+
+<body>
+
+    <!-- === HEADER === -->
     <header class="header">
-        <div class="header-content">
+        <div class="header-inner">
             <div class="logo">
-                <i class="fas fa-route"></i>
-                <span>SmartRoute</span>
+                <div class="logo-icon">🤖</div>
+                <span>SmartRoute v8.0</span>
+                <span class="badge">Agentic AI</span>
             </div>
             <div class="header-actions">
-                <button class="btn-demo" onclick="startAutoDemo()">
-                    <i class="fas fa-play"></i> Demo Mode
-                </button>
-                <button class="btn-icon" onclick="toggleTheme()" title="Toggle Theme">
-                    <i class="fas fa-moon"></i>
-                </button>
+                <button class="btn btn-warm" onclick="startDemo()"><i class="fas fa-magic"></i> Auto Demo</button>
+                <button class="btn btn-accent" onclick="emergencyReplan()"><i class="fas fa-bolt"></i> Emergency
+                    Replan</button>
+                <button class="btn btn-delay" onclick="emergencyReplan()" title="Report a travel delay"><i
+                        class="fas fa-clock"></i> ⏰ Report Delay</button>
+                <button class="btn-icon" onclick="exportPDF()" title="Export PDF"><i
+                        class="fas fa-file-pdf"></i></button>
+                <button class="btn-icon" onclick="shareTrip()" title="Share Trip"><i
+                        class="fas fa-share-alt"></i></button>
+                <button class="btn-icon" onclick="toggleTheme()" title="Toggle Theme"><i class="fas fa-moon"
+                        id="themeIcon"></i></button>
             </div>
         </div>
     </header>
 
-    <!-- Main Container -->
-    <div class="main-container">
-        <!-- Left Sidebar -->
+    <!-- === MAIN LAYOUT === -->
+    <div class="app-layout">
+
+        <!-- ====== LEFT SIDEBAR ====== -->
         <aside class="left-sidebar">
-            <!-- Travel Persona -->
-            <div class="sidebar-section">
-                <h3><i class="fas fa-user"></i> Travel Persona</h3>
-                <select id="personaSelect" class="persona-select">
-                    <option value="solo">🎒 Solo Backpacker</option>
-                    <option value="family">👨‍👩‍👧‍👦 Family Vacation</option>
-                    <option value="luxury">💎 Luxury Traveler</option>
-                    <option value="business">💼 Business Trip</option>
-                    <option value="adventure">⛰️ Adventure Seeker</option>
-                    <option value="cultural">🏛️ Cultural Explorer</option>
-                </select>
-            </div>
 
-            <!-- Budget Tracker -->
-            <div class="sidebar-section">
-                <h3><i class="fas fa-wallet"></i> Budget Tracker</h3>
-                <div class="budget-meter">
-                    <div class="budget-info">
-                        <span class="budget-used">₹0</span>
-                        <span class="budget-total">/ ₹15,000</span>
-                    </div>
-                    <div class="budget-bar">
-                        <div class="budget-fill" style="width: 0%"></div>
-                    </div>
-                    <div class="budget-categories">
-                        <div class="budget-cat">
-                            <i class="fas fa-hotel"></i>
-                            <span>Accommodation: ₹0</span>
-                        </div>
-                        <div class="budget-cat">
-                            <i class="fas fa-utensils"></i>
-                            <span>Food: ₹0</span>
-                        </div>
-                        <div class="budget-cat">
-                            <i class="fas fa-car"></i>
-                            <span>Transport: ₹0</span>
-                        </div>
-                        <div class="budget-cat">
-                            <i class="fas fa-ticket-alt"></i>
-                            <span>Activities: ₹0</span>
-                        </div>
-                    </div>
+            <!-- Persona Selection -->
+            <div class="panel">
+                <div class="panel-title"><span class="emoji">👤</span> Travel Persona</div>
+                <div class="persona-grid">
+                    <div class="persona-card active" data-persona="solo" onclick="selectPersona('solo')"><span
+                            class="emoji">🎒</span>Solo</div>
+                    <div class="persona-card" data-persona="family" onclick="selectPersona('family')"><span
+                            class="emoji">👨‍👩‍👧‍👦</span>Family</div>
+                    <div class="persona-card" data-persona="luxury" onclick="selectPersona('luxury')"><span
+                            class="emoji">💎</span>Luxury</div>
+                    <div class="persona-card" data-persona="adventure" onclick="selectPersona('adventure')"><span
+                            class="emoji">🏔️</span>Adventure</div>
                 </div>
             </div>
 
-            <!-- Preference Learning -->
-            <div class="sidebar-section">
-                <h3><i class="fas fa-heart"></i> Your Preferences</h3>
-                <div class="preference-bars">
-                    <div class="preference-item">
-                        <div class="preference-header">
-                            <span class="preference-label">Cultural</span>
-                            <span class="preference-value">85%</span>
-                        </div>
-                        <div class="preference-bar">
-                            <div class="preference-fill" style="width: 85%"></div>
-                        </div>
-                    </div>
-                    <div class="preference-item">
-                        <div class="preference-header">
-                            <span class="preference-label">Adventure</span>
-                            <span class="preference-value">72%</span>
-                        </div>
-                        <div class="preference-bar">
-                            <div class="preference-fill" style="width: 72%"></div>
-                        </div>
-                    </div>
-                    <div class="preference-item">
-                        <div class="preference-header">
-                            <span class="preference-label">Food</span>
-                            <span class="preference-value">68%</span>
-                        </div>
-                        <div class="preference-bar">
-                            <div class="preference-fill" style="width: 68%"></div>
-                        </div>
-                    </div>
-                    <div class="preference-item">
-                        <div class="preference-header">
-                            <span class="preference-label">Relaxation</span>
-                            <span class="preference-value">45%</span>
-                        </div>
-                        <div class="preference-bar">
-                            <div class="preference-fill" style="width: 45%"></div>
-                        </div>
+            <!-- Trip Input -->
+            <div class="panel">
+                <div class="panel-title"><i class="fas fa-plane-departure"></i> Plan Your Trip</div>
+                <div class="form-group">
+                    <label class="form-label">Destination</label>
+                    <div style="display:flex;gap:6px">
+                        <input type="text" id="destination" class="form-input" placeholder="Paris, Tokyo, Jaipur..."
+                            style="flex:1" aria-label="Destination">
+                        <button class="btn-icon" onclick="startVoice()" title="Voice Input" aria-label="Voice Input"><i
+                                class="fas fa-microphone"></i></button>
                     </div>
                 </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label">Days</label>
+                        <input type="number" id="duration" class="form-input" min="1" max="30" value="3"
+                            aria-label="Duration">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Budget (₹)</label>
+                        <input type="number" id="budget" class="form-input" min="1000" value="15000" step="1000"
+                            aria-label="Budget">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Start Date</label>
+                    <input type="date" id="startDate" class="form-input" aria-label="Start Date">
+                </div>
+                <div class="checkbox-row">
+                    <label class="checkbox-label"><input type="checkbox"> ✈️ Flights</label>
+                    <label class="checkbox-label"><input type="checkbox" checked> 🏨 Hotels</label>
+                    <label class="checkbox-label"><input type="checkbox" checked> 🍽️ Restaurants</label>
+                    <label class="checkbox-label"><input type="checkbox" checked> 🚗 Transport</label>
+                </div>
+                <button class="btn btn-primary" id="generateBtn"
+                    style="width:100%;justify-content:center;margin-top:6px">
+                    <i class="fas fa-robot"></i> Generate AI Trip
+                </button>
+            </div>
+
+            <!-- Budget Meter -->
+            <div class="panel">
+                <div class="panel-title"><i class="fas fa-wallet"></i> Budget Tracker</div>
+                <div class="budget-display">
+                    <span class="budget-amount" id="budgetAmount">₹0</span>
+                    <span class="budget-total" id="budgetTotal">/ ₹15,000</span>
+                </div>
+                <div class="progress-bar">
+                    <div class="progress-fill" id="budgetFill" style="width:0%"></div>
+                </div>
+                <div class="budget-cats" id="budgetCats">
+                    <div class="budget-cat"><span>🏨 Accommodation</span><span class="fw-600">₹0</span></div>
+                    <div class="budget-cat"><span>🍽️ Food</span><span class="fw-600">₹0</span></div>
+                    <div class="budget-cat"><span>🎯 Activities</span><span class="fw-600">₹0</span></div>
+                    <div class="budget-cat"><span>🚗 Transport</span><span class="fw-600">₹0</span></div>
+                </div>
+            </div>
+
+            <!-- Bayesian Preferences -->
+            <div class="panel">
+                <div class="panel-title"><i class="fas fa-brain"></i> Bayesian Preferences</div>
+                <div id="bayesianBars"></div>
             </div>
         </aside>
 
-        <!-- Main Content -->
-        <main class="main-content">
-            <!-- Map Section -->
-            <section class="map-section">
+        <!-- ====== CENTER CONTENT ====== -->
+        <main class="center-content">
+
+            <!-- Map -->
+            <div class="map-container" id="mapSection">
                 <div id="map"></div>
-            </section>
+            </div>
 
-            <!-- Trip Input Form -->
-            <section class="trip-input-section">
-                <h3>Plan Your Perfect Trip</h3>
-                <div class="form-grid">
-                    <div class="form-group">
-                        <label for="destination">Destination</label>
-                        <input type="text" id="destination" placeholder="e.g., Paris, Tokyo, Jaipur" />
-                    </div>
-                    <div class="form-group">
-                        <label for="duration">Duration (days)</label>
-                        <input type="number" id="duration" min="1" max="30" value="3" />
-                    </div>
-                    <div class="form-group">
-                        <label for="budget">Budget (₹)</label>
-                        <input type="number" id="budget" min="1000" value="15000" step="1000" />
-                    </div>
-                    <div class="form-group">
-                        <label for="startDate">Start Date</label>
-                        <input type="date" id="startDate" />
-                    </div>
-                </div>
-                <button id="generateTripBtn" class="btn-primary">
-                    <i class="fas fa-magic"></i> Generate Smart Itinerary
-                </button>
-            </section>
+            <!-- Agent Orchestration Conversation -->
+            <div class="panel agent-convo-panel" id="agentConvoPanel" style="display:none">
+                <div class="panel-title"><i class="fas fa-project-diagram"></i> Agent Orchestration — Live</div>
+                <div class="agent-convo" id="agentConvo"></div>
+            </div>
 
-            <!-- Itinerary Timeline -->
-            <section class="itinerary-timeline">
-                <div class="timeline-header">
-                    <h3>Your Itinerary</h3>
-                    <div class="timeline-actions">
-                        <button class="btn-demo" onclick="exportItinerary()">
-                            <i class="fas fa-download"></i> Export
-                        </button>
-                    </div>
-                </div>
+            <!-- AI Insights (auto-generated) -->
+            <div class="panel" id="insightsPanel" style="display:none">
+                <div class="panel-title"><i class="fas fa-lightbulb"></i> AI Insights</div>
+                <div id="insightsContainer"></div>
+            </div>
+
+            <!-- Itinerary -->
+            <div class="itin-section">
                 <div id="itineraryContainer">
-                    <p style="text-align: center; color: #a0a0b2; padding: 40px;">
-                        Generate an itinerary to see your personalized travel plan
-                    </p>
-                </div>
-            </section>
-        </main>
-
-        <!-- Right Sidebar -->
-        <aside class="right-sidebar">
-            <!-- AI Agents Status -->
-            <div class="sidebar-section">
-                <h3><i class="fas fa-robot"></i> AI Agents</h3>
-                <div style="display: flex; flex-direction: column; gap: 12px;">
-                    <div style="display: flex; align-items: center; gap: 12px; padding: 12px; background: rgba(102, 126, 234, 0.1); border-radius: 8px;">
-                        <i class="fas fa-brain" style="color: #667eea; font-size: 20px;"></i>
-                        <div>
-                            <div style="font-weight: 600;">Planner Agent</div>
-                            <div style="font-size: 12px; color: #a0a0b2;">MCTS Optimization</div>
-                        </div>
-                    </div>
-                    <div style="display: flex; align-items: center; gap: 12px; padding: 12px; background: rgba(79, 172, 254, 0.1); border-radius: 8px;">
-                        <i class="fas fa-cloud-sun" style="color: #4facfe; font-size: 20px;"></i>
-                        <div>
-                            <div style="font-weight: 600;">Weather Agent</div>
-                            <div style="font-size: 12px; color: #a0a0b2;">Forecast Analysis</div>
-                        </div>
-                    </div>
-                    <div style="display: flex; align-items: center; gap: 12px; padding: 12px; background: rgba(16, 185, 129, 0.1); border-radius: 8px;">
-                        <i class="fas fa-users" style="color: #10b981; font-size: 20px;"></i>
-                        <div>
-                            <div style="font-weight: 600;">Crowd Agent</div>
-                            <div style="font-size: 12px; color: #a0a0b2;">Real-time Updates</div>
-                        </div>
-                    </div>
-                    <div style="display: flex; align-items: center; gap: 12px; padding: 12px; background: rgba(245, 158, 11, 0.1); border-radius: 8px;">
-                        <i class="fas fa-wallet" style="color: #f59e0b; font-size: 20px;"></i>
-                        <div>
-                            <div style="font-weight: 600;">Budget Agent</div>
-                            <div style="font-size: 12px; color: #a0a0b2;">Cost Optimization</div>
-                        </div>
+                    <div class="empty-state">
+                        <div class="emoji">🤖</div>
+                        <p>Enter a destination to let 7 autonomous agents collaboratively plan your trip.</p>
                     </div>
                 </div>
             </div>
 
-            <!-- System Stats -->
-            <div class="sidebar-section">
-                <h3><i class="fas fa-chart-line"></i> System Status</h3>
-                <div style="display: flex; flex-direction: column; gap: 16px;">
-                    <div>
-                        <div style="font-size: 12px; color: #a0a0b2; margin-bottom: 4px;">Response Time</div>
-                        <div style="font-size: 24px; font-weight: 700; color: #10b981;">120ms</div>
+            <!-- Bookings (Hotels, Cabs, Flights, Restaurants) -->
+            <div class="itin-section" id="bookingsContainer">
+                <div class="empty-state">
+                    <div class="emoji">🎫</div>
+                    <p>Bookings for hotels, flights, cab rentals, and restaurants will appear here.</p>
+                </div>
+            </div>
+
+            <!-- Language Tips -->
+            <div class="lang-section" id="languageTips">
+                <div class="section-title">🗣️ Language Tips</div>
+                <div class="empty-state">
+                    <div class="emoji">🌍</div>
+                    <p>Essential travel phrases and pronunciation guides will appear after generating a trip.</p>
+                </div>
+            </div>
+        </main>
+
+        <!-- ====== RIGHT SIDEBAR ====== -->
+        <aside class="right-sidebar">
+
+            <!-- AI Agents -->
+            <div class="panel">
+                <div class="panel-title"><i class="fas fa-robot"></i> AI Agents (7)</div>
+                <div id="agentCards"></div>
+            </div>
+
+            <!-- Agent Activity Log -->
+            <div class="panel">
+                <div class="panel-title"><i class="fas fa-stream"></i> Agent Activity</div>
+                <div class="activity-log" id="activityLog"></div>
+            </div>
+
+            <!-- RL Reward Chart -->
+            <div class="panel">
+                <div class="panel-title"><i class="fas fa-chart-line"></i> RL Reward Progression</div>
+                <div class="chart-container"><canvas id="rlChart"></canvas></div>
+                <div class="text-xs text-muted mt-1">R = α(rating) + β(budget) + γ(weather) − δ(crowd)</div>
+            </div>
+
+            <!-- Weather Forecast -->
+            <div class="panel">
+                <div class="panel-title"><i class="fas fa-cloud-sun"></i> Weather Forecast</div>
+                <div class="weather-grid" id="weatherCards">
+                    <div class="weather-card">
+                        <div class="weather-icon">☀️</div>
+                        <div class="weather-temp">—</div>
+                        <div class="weather-desc">No data</div>
                     </div>
-                    <div>
-                        <div style="font-size: 12px; color: #a0a0b2; margin-bottom: 4px;">Uptime</div>
-                        <div style="font-size: 24px; font-weight: 700; color: #667eea;">99.8%</div>
+                    <div class="weather-card">
+                        <div class="weather-icon">⛅</div>
+                        <div class="weather-temp">—</div>
+                        <div class="weather-desc">No data</div>
                     </div>
-                    <div>
-                        <div style="font-size: 12px; color: #a0a0b2; margin-bottom: 4px;">Accuracy</div>
-                        <div style="font-size: 24px; font-weight: 700; color: #f59e0b;">94.2%</div>
+                    <div class="weather-card">
+                        <div class="weather-icon">🌤️</div>
+                        <div class="weather-temp">—</div>
+                        <div class="weather-desc">No data</div>
                     </div>
                 </div>
+            </div>
+
+            <!-- Crowd Level -->
+            <div class="panel">
+                <div class="panel-title"><i class="fas fa-users"></i> Crowd Level</div>
+                <div class="flex-between mb-1">
+                    <span class="text-xs text-muted">Current Level:</span>
+                    <span class="text-xs fw-600" id="crowdLabel">—</span>
+                </div>
+                <div class="crowd-bar" id="crowdBar">
+                    <div class="crowd-segment" style="background:var(--bg-4)"></div>
+                    <div class="crowd-segment" style="background:var(--bg-4)"></div>
+                    <div class="crowd-segment" style="background:var(--bg-4)"></div>
+                    <div class="crowd-segment" style="background:var(--bg-4)"></div>
+                    <div class="crowd-segment" style="background:var(--bg-4)"></div>
+                </div>
+            </div>
+
+            <!-- Explainability -->
+            <div class="panel">
+                <div class="panel-title"><i class="fas fa-lightbulb"></i> AI Reasoning</div>
+                <div id="explainPanel" class="text-sm text-muted">Agents will explain their decisions here...</div>
+            </div>
+
+            <!-- Syllabus Alignment -->
+            <div class="panel">
+                <div class="panel-title"><i class="fas fa-graduation-cap"></i> Syllabus Alignment</div>
+                <ul class="syllabus-list">
+                    <li><strong>Unit 1:</strong> Multi-agent systems, agentic patterns</li>
+                    <li><strong>Unit 2:</strong> RL (MDP/PPO/DQN), Bayesian adaptability</li>
+                    <li><strong>Unit 3:</strong> Goal-oriented reasoning, MCTS, POMDP</li>
+                    <li><strong>Unit 4:</strong> Explainability, human-AI interaction, ethics</li>
+                    <li><strong>Unit 5:</strong> Travel vertical, GenAI + RAG, autonomous agents</li>
+                </ul>
             </div>
         </aside>
     </div>
 
-    <!-- Media Modal -->
-    <div id="mediaModal" class="modal-overlay">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h2 id="modalActivityName">Activity Details</h2>
-                <button class="modal-close" onclick="closeMediaModal()">
+    <!-- === BOTTOM PANELS === -->
+    <div class="bottom-panels">
+        <!-- Agent Communication Graph -->
+        <div class="bottom-panel">
+            <div class="panel-title"><i class="fas fa-project-diagram"></i> Agent Communication Graph</div>
+            <canvas id="agentGraphCanvas"></canvas>
+        </div>
+
+        <!-- MDP / POMDP Visualization -->
+        <div class="bottom-panel">
+            <div class="panel-title"><i class="fas fa-sitemap"></i> MDP State Transitions & POMDP Flow</div>
+
+            <div class="text-xs fw-700 mb-1" style="color:var(--accent)">MDP State Space</div>
+            <div class="mdp-flow">
+                <div class="mdp-node" style="background:rgba(102,126,234,0.15);border-color:var(--primary)">📍
+                    Location<br><span class="text-xs text-muted">Day/City</span></div>
+                <div class="mdp-arrow">→</div>
+                <div class="mdp-node" style="background:rgba(16,185,129,0.15);border-color:var(--success)">💰
+                    Budget<br><span class="text-xs text-muted">Remaining</span></div>
+                <div class="mdp-arrow">→</div>
+                <div class="mdp-node" style="background:rgba(245,158,11,0.15);border-color:var(--warning)">🌦️
+                    Weather<br><span class="text-xs text-muted">Probability</span></div>
+                <div class="mdp-arrow">→</div>
+                <div class="mdp-node" style="background:rgba(239,68,68,0.15);border-color:var(--danger)">👥
+                    Crowd<br><span class="text-xs text-muted">Level</span></div>
+                <div class="mdp-arrow">→</div>
+                <div class="mdp-node" style="background:rgba(236,72,153,0.15);border-color:#ec4899">😊
+                    Satisfaction<br><span class="text-xs text-muted">Rating</span></div>
+            </div>
+
+            <div class="divider"></div>
+
+            <div class="text-xs fw-700 mb-1" style="color:var(--accent)">POMDP Pipeline</div>
+            <div class="pomdp-flow">
+                <div class="pomdp-step" style="background:rgba(102,126,234,0.2)">👁️ Observe<br><span
+                        class="text-xs">Weather, Crowd</span></div>
+                <div class="mdp-arrow">→</div>
+                <div class="pomdp-step" style="background:rgba(118,75,162,0.2)">🧮 Infer<br><span
+                        class="text-xs">Bayesian</span></div>
+                <div class="mdp-arrow">→</div>
+                <div class="pomdp-step" style="background:rgba(79,172,254,0.2)">📊 MDP<br><span
+                        class="text-xs">Transition</span></div>
+                <div class="mdp-arrow">→</div>
+                <div class="pomdp-step" style="background:rgba(16,185,129,0.2)">📋 Policy<br><span
+                        class="text-xs">Optimal</span></div>
+                <div class="mdp-arrow">→</div>
+                <div class="pomdp-step" style="background:rgba(236,72,153,0.2)">⚡ Action<br><span
+                        class="text-xs">Execute</span></div>
+            </div>
+
+            <div class="divider"></div>
+
+            <div class="text-xs fw-700 mb-1" style="color:var(--accent)">Action Space</div>
+            <div style="display:flex;flex-wrap:wrap;gap:6px">
+                <span class="tag tag-info">Keep Activity</span>
+                <span class="tag tag-warning">Swap Activity</span>
+                <span class="tag tag-danger">Change Day</span>
+                <span class="tag tag-success">Reorder</span>
+                <span class="tag" style="background:rgba(118,75,162,0.15);color:#764ba2">Adjust Budget</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- === MEDIA MODAL === -->
+    <div class="modal-overlay" id="mediaModal">
+        <div class="media-modal">
+            <div class="media-modal-header">
+                <h2 id="modalTitle">Place Details</h2>
+                <button class="btn-icon" onclick="closeMediaModal()" aria-label="Close"><i
+                        class="fas fa-times"></i></button>
+            </div>
+            <div class="media-modal-body">
+                <!-- Photo Gallery -->
+                <div class="media-section">
+                    <h3><i class="fas fa-images"></i> Photos</h3>
+                    <div class="photo-gallery" id="modalPhotos"></div>
+                </div>
+                <!-- Videos -->
+                <div class="media-section">
+                    <h3><i class="fas fa-video"></i> Videos</h3>
+                    <div class="media-links" id="modalVideos"></div>
+                </div>
+                <!-- Maps -->
+                <div class="media-section">
+                    <h3><i class="fas fa-map-marked-alt"></i> Maps & Directions</h3>
+                    <div id="modalMapEmbed"
+                        style="width:100%;height:250px;border-radius:var(--radius);overflow:hidden;margin-bottom:12px;background:var(--bg-4)">
+                    </div>
+                    <div class="media-links" id="modalMaps"></div>
+                </div>
+                <!-- Reviews -->
+                <div class="media-section">
+                    <h3><i class="fas fa-star"></i> Reviews & Ratings</h3>
+                    <div id="modalRating" class="modal-rating-display"></div>
+                    <div class="media-links" id="modalReviews"></div>
+                </div>
+                <!-- Useful Links -->
+                <div class="media-section">
+                    <h3><i class="fas fa-link"></i> Useful Links</h3>
+                    <div class="media-links" id="modalLinks"></div>
+                </div>
+                <!-- Quick Info -->
+                <div class="media-section">
+                    <h3><i class="fas fa-info-circle"></i> Quick Info</h3>
+                    <div id="modalInfo" class="modal-quick-info"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- === DELAY REPLAN MODAL === -->
+    <div class="delay-modal-overlay" id="delayModal">
+        <div class="delay-modal">
+            <div class="delay-modal-header">
+                <h3>⏰ Report Travel Delay</h3>
+                <button class="btn-icon" onclick="document.getElementById('delayModal').classList.remove('active')">
                     <i class="fas fa-times"></i>
                 </button>
             </div>
-            
-            <!-- Photos Section -->
-            <div class="media-section">
-                <h3><i class="fas fa-images"></i> Photos</h3>
-                <div id="modalPhotoGrid" class="photo-grid">
-                    <!-- Photos will be populated by JS -->
+            <div class="delay-modal-body">
+                <div class="delay-field">
+                    <label for="delayReason"><i class="fas fa-exclamation-triangle"></i> Delay Reason</label>
+                    <select id="delayReason">
+                        <option value="train_delay">🚂 Train Delayed</option>
+                        <option value="flight_delay">✈️ Flight Delayed</option>
+                        <option value="traffic">🚗 Traffic / Road Block</option>
+                        <option value="other">⏰ Other Reason</option>
+                    </select>
                 </div>
-            </div>
-            
-            <!-- Videos Section -->
-            <div class="media-section">
-                <h3><i class="fas fa-video"></i> Videos</h3>
-                <div id="modalVideoLinks" class="link-buttons">
-                    <!-- Video links will be populated by JS -->
+                <div class="delay-field">
+                    <label for="delayHours"><i class="fas fa-hourglass-half"></i> Hours Delayed</label>
+                    <input type="number" id="delayHours" min="1" max="12" value="4" step="0.5">
                 </div>
-            </div>
-            
-            <!-- Reviews Section -->
-            <div class="media-section">
-                <h3><i class="fas fa-star"></i> Reviews & Ratings</h3>
-                <div id="modalReviewLinks" class="link-buttons">
-                    <!-- Review links will be populated by JS -->
+                <div class="delay-field">
+                    <label for="delayDay"><i class="fas fa-calendar-day"></i> Affected Day</label>
+                    <input type="number" id="delayDay" min="1" max="14" value="1">
                 </div>
-            </div>
-            
-            <!-- Maps Section -->
-            <div class="media-section">
-                <h3><i class="fas fa-map-marked-alt"></i> View on Maps</h3>
-                <div id="modalMapLinks" class="link-buttons">
-                    <!-- Map links will be populated by JS -->
-                </div>
+                <p class="delay-info">
+                    <i class="fas fa-info-circle"></i>
+                    AI agents will find nearby quick-visit alternatives and restructure your day to make the most of
+                    remaining time.
+                </p>
+                <button class="btn btn-accent btn-full" onclick="delayReplan()">
+                    <i class="fas fa-sync-alt"></i> Replan Now — AI Agents Will Adjust
+                </button>
             </div>
         </div>
     </div>
 
-    <!-- Loading Overlay -->
-    <div id="loadingOverlay" class="loading-overlay">
-        <div style="text-align: center;">
-            <div class="loading-spinner"></div>
-            <div style="margin-top: 20px; color: white; font-weight: 600;">
-                Generating your perfect itinerary...
-            </div>
-        </div>
+    <!-- === LOADING OVERLAY === -->
+    <div class="loading-overlay" id="loadingOverlay">
+        <div class="spinner"></div>
+        <div class="loading-text">🤖 AI Agents are working...</div>
+        <div class="loading-sub">Research · Planning · Booking · Optimizing</div>
     </div>
 
-    <!-- Toast Container -->
-    <div id="toastContainer" class="toast-container"></div>
+    <!-- === TOAST CONTAINER === -->
+    <div class="toast-container" id="toastContainer"></div>
 
-    <!-- Scripts -->
+    <!-- === SCRIPTS === -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="js/map.js"></script>
-    <script src="js/main.js"></script>
+    <script src="js/app.js"></script>
+
 </body>
+
 </html>
