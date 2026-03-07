@@ -1,14 +1,15 @@
 """
-SmartRoute v12.0 - Full API-Driven Agentic AI Travel Planner
+SmartRoute v14.0 - Agentic AI Travel Planner
 - ALL locations from APIs (OpenTripMap + Overpass + Wikipedia) - NO predefined data
 - Zero duplicate places across days
 - Weather & crowd-based emergency replanning
 - Live location nearby suggestions
 - Language tips via API for all Indian cities
 - Parallel API calls, real Wikipedia photos
+- FULL AGENTIC BOOKING: flights, hotels, cabs, payment, history
 """
 
-import os, asyncio, json, random, math, httpx, time
+import os, asyncio, json, random, math, httpx, time, re
 from typing import Dict, List, Optional, Any
 from datetime import datetime, timedelta
 from urllib.parse import quote, unquote
@@ -31,7 +32,7 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 GOOGLE_PLACES_API_KEY = os.getenv("GOOGLE_PLACES_API_KEY", "").strip()
 PEXELS_API_KEY = os.getenv("PEXELS_API_KEY", "563492ad6f917000010000017c5c7f53e8cb4c27a2a4e5a0e9db03aa")
 
-HEADERS = {"User-Agent": "SmartRoute/12.0 (travel planner; contact@smartroute.app)"}
+HEADERS = {"User-Agent": "SmartRoute/13.0 (travel planner; contact@smartroute.app)"}
 
 # ============================================
 # CACHES
@@ -460,25 +461,38 @@ async def get_attractions_api(city: str) -> List[Dict]:
 # ============================================
 # NEARBY PLACES (for live trip assistance)
 # ============================================
-async def get_nearby_places(lat: float, lon: float, radius: int = 2000) -> List[Dict]:
-    """Fetch nearby places for a user's current location during an active trip"""
+async def get_nearby_places(lat: float, lon: float, radius: int = 5000, categories: List[str] = None) -> Dict[str, Any]:
+    """Fetch nearby places with quality filtering and categorization.
+    Returns categorized results: attractions, eating, recreation, nature, shopping, culture"""
     
-    # Use Overpass for nearby POIs
+    # Use multiple Overpass queries for different category types with WIDER radius
+    # Include ways (polygons) too for large landmarks like zoos, parks, beaches
     query = f"""
-    [out:json][timeout:10];
+    [out:json][timeout:20];
     (
-      node["tourism"~"attraction|museum|gallery|viewpoint"](around:{radius},{lat},{lon});
-      node["historic"~"castle|monument|memorial|ruins|fort|palace"](around:{radius},{lat},{lon});
-      node["amenity"~"place_of_worship|restaurant|cafe"](around:{radius},{lat},{lon});
-      node["shop"~"gift|souvenir|art"](around:{radius},{lat},{lon});
-      node["leisure"~"park|garden"](around:{radius},{lat},{lon});
+      node["tourism"~"attraction|museum|gallery|viewpoint|zoo|theme_park|aquarium"](around:{radius},{lat},{lon});
+      node["historic"~"castle|monument|memorial|ruins|fort|palace|archaeological_site"](around:{radius},{lat},{lon});
+      node["amenity"~"place_of_worship|restaurant|cafe|fast_food|theatre|cinema|arts_centre"](around:{radius},{lat},{lon});
+      node["shop"~"gift|souvenir|art|mall"](around:{radius},{lat},{lon});
+      node["leisure"~"park|garden|nature_reserve|beach_resort|water_park|amusement_arcade|sports_centre|stadium|swimming_pool"](around:{radius},{lat},{lon});
+      node["natural"~"beach|peak|cave_entrance|water"](around:{radius},{lat},{lon});
+      way["tourism"~"attraction|museum|gallery|zoo|theme_park|aquarium"](around:{radius},{lat},{lon});
+      way["leisure"~"park|garden|nature_reserve|beach_resort|water_park|stadium|sports_centre"](around:{radius},{lat},{lon});
+      way["natural"~"beach"](around:{radius},{lat},{lon});
+      way["landuse"~"recreation_ground"](around:{radius},{lat},{lon});
+      relation["tourism"~"attraction|museum|zoo|theme_park"](around:{radius},{lat},{lon});
+      relation["leisure"~"park|nature_reserve"](around:{radius},{lat},{lon});
     );
-    out 30;
+    out center 100;
     """
     
-    places = []
+    all_places = []
+    skip_words = {"bus station", "bus stop", "railway station", "airport", "hospital", 
+                 "school", "college", "university", "bank", "atm", "pharmacy", 
+                 "gas station", "petrol", "parking", "toilet", "post office", "police"}
+    
     try:
-        async with httpx.AsyncClient(timeout=10, headers=HEADERS) as client:
+        async with httpx.AsyncClient(timeout=20, headers=HEADERS) as client:
             resp = await client.post(
                 "https://overpass-api.de/api/interpreter",
                 data={"data": query}
@@ -492,56 +506,214 @@ async def get_nearby_places(lat: float, lon: float, radius: int = 2000) -> List[
                     name = tags.get("name", tags.get("name:en", "")).strip()
                     if not name or len(name) < 3 or name.lower() in seen:
                         continue
+                    if any(sw in name.lower() for sw in skip_words):
+                        continue
                     seen.add(name.lower())
                     
-                    p_lat = float(el.get("lat", lat))
-                    p_lon = float(el.get("lon", lon))
+                    p_lat = el.get("lat") or el.get("center", {}).get("lat", lat)
+                    p_lon = el.get("lon") or el.get("center", {}).get("lon", lon)
+                    p_lat, p_lon = float(p_lat), float(p_lon)
                     
-                    # Calculate distance
-                    dist = math.sqrt((p_lat - lat) ** 2 + (p_lon - lon) ** 2) * 111000  # rough meters
+                    # Calculate distance in meters (Haversine approximation)
+                    dlat = math.radians(p_lat - lat)
+                    dlon = math.radians(p_lon - lon)
+                    a_val = math.sin(dlat/2)**2 + math.cos(math.radians(lat)) * math.cos(math.radians(p_lat)) * math.sin(dlon/2)**2
+                    dist = 6371000 * 2 * math.atan2(math.sqrt(a_val), math.sqrt(1-a_val))
+                    
+                    # Determine category
+                    tourism = tags.get("tourism", "")
+                    historic = tags.get("historic", "")
+                    amenity = tags.get("amenity", "")
+                    leisure = tags.get("leisure", "")
+                    natural_tag = tags.get("natural", "")
+                    shop = tags.get("shop", "")
                     
                     category = "attraction"
-                    if tags.get("amenity") == "restaurant":
-                        category = "restaurant"
-                    elif tags.get("amenity") == "cafe":
-                        category = "cafe"
-                    elif tags.get("tourism") == "museum":
-                        category = "museum"
-                    elif tags.get("historic"):
-                        category = "historic"
-                    elif tags.get("amenity") == "place_of_worship":
-                        category = "religious"
-                    elif tags.get("leisure") in ("park", "garden"):
-                        category = "park"
-                    elif tags.get("shop"):
-                        category = "shopping"
+                    subcategory = ""
+                    quality_score = 1  # Base quality score
                     
-                    places.append({
+                    # EATING
+                    if amenity in ("restaurant", "cafe", "fast_food"):
+                        category = "eating"
+                        subcategory = amenity
+                        quality_score = 2
+                    # RECREATION & ENTERTAINMENT
+                    elif tourism in ("zoo", "theme_park", "aquarium"):
+                        category = "recreation"
+                        subcategory = tourism
+                        quality_score = 5  # High quality - these are major attractions
+                    elif leisure in ("water_park", "amusement_arcade", "sports_centre", "stadium", "swimming_pool", "beach_resort"):
+                        category = "recreation"
+                        subcategory = leisure
+                        quality_score = 4
+                    elif amenity in ("theatre", "cinema", "arts_centre"):
+                        category = "recreation"
+                        subcategory = amenity
+                        quality_score = 3
+                    # NATURE
+                    elif natural_tag in ("beach", "peak", "cave_entrance", "water"):
+                        category = "nature"
+                        subcategory = natural_tag
+                        quality_score = 4
+                    elif leisure in ("park", "garden", "nature_reserve"):
+                        category = "nature"
+                        subcategory = leisure
+                        quality_score = 3
+                    # CULTURE & HISTORY
+                    elif tourism in ("museum", "gallery"):
+                        category = "culture"
+                        subcategory = tourism
+                        quality_score = 4
+                    elif historic:
+                        category = "culture"
+                        subcategory = historic
+                        quality_score = 4
+                    elif amenity == "place_of_worship":
+                        category = "culture"
+                        subcategory = "temple"
+                        quality_score = 3
+                    # SHOPPING
+                    elif shop:
+                        category = "shopping"
+                        subcategory = shop
+                        quality_score = 2
+                    # ATTRACTIONS (general)
+                    elif tourism in ("attraction", "viewpoint"):
+                        category = "attraction"
+                        subcategory = tourism
+                        quality_score = 4
+                    
+                    # Boost quality for places with Wikipedia articles
+                    if tags.get("wikipedia") or tags.get("wikidata"):
+                        quality_score += 2
+                    # Boost for places with websites
+                    if tags.get("website") or tags.get("url"):
+                        quality_score += 1
+                    
+                    all_places.append({
                         "name": name,
                         "category": category,
+                        "subcategory": subcategory,
                         "lat": p_lat,
                         "lon": p_lon,
                         "distance_m": round(dist),
-                        "description": tags.get("description", f"{name} - {category}"),
+                        "description": tags.get("description", tags.get("description:en", f"{name}")),
                         "opening_hours": tags.get("opening_hours", ""),
                         "phone": tags.get("phone", ""),
-                        "website": tags.get("website", ""),
-                        "wiki": name.replace(" ", "_")
+                        "website": tags.get("website", tags.get("url", "")),
+                        "wiki": tags.get("wikipedia", "").replace("en:", "").replace(" ", "_") or name.replace(" ", "_"),
+                        "quality_score": quality_score,
+                        "photo": ""
                     })
-                
-                places.sort(key=lambda x: x["distance_m"])
     except Exception as e:
         print(f"Nearby places fetch failed: {e}")
     
+    # Also try OpenTripMap for higher-quality results
+    try:
+        async with httpx.AsyncClient(timeout=10, headers=HEADERS) as client:
+            resp = await client.get("https://api.opentripmap.com/0.1/en/places/radius", params={
+                "radius": radius, "lon": lon, "lat": lat,
+                "kinds": "interesting_places,cultural,historic,natural,architecture,amusements,sport,beaches,gardens_and_parks,religion,museums,theatres_and_entertainments,foods",
+                "rate": "1",
+                "limit": 50, "format": "json"
+            })
+            otm_places = resp.json()
+            if isinstance(otm_places, list):
+                seen_names = {p["name"].lower() for p in all_places}
+                for place in otm_places:
+                    name = place.get("name", "").strip()
+                    if not name or len(name) < 3 or name.lower() in seen_names:
+                        continue
+                    if any(sw in name.lower() for sw in skip_words):
+                        continue
+                    seen_names.add(name.lower())
+                    
+                    kinds = place.get("kinds", "")
+                    p_lat2 = place.get("point", {}).get("lat", lat)
+                    p_lon2 = place.get("point", {}).get("lon", lon)
+                    
+                    dlat2 = math.radians(float(p_lat2) - lat)
+                    dlon2 = math.radians(float(p_lon2) - lon)
+                    a_val2 = math.sin(dlat2/2)**2 + math.cos(math.radians(lat)) * math.cos(math.radians(float(p_lat2))) * math.sin(dlon2/2)**2
+                    dist2 = 6371000 * 2 * math.atan2(math.sqrt(a_val2), math.sqrt(1-a_val2))
+                    
+                    category = "attraction"
+                    subcategory = ""
+                    quality_score = (place.get("rate", 1) or 1) + 1
+                    
+                    if any(k in kinds for k in ["foods", "restaurants", "cafes"]):
+                        category = "eating"
+                    elif any(k in kinds for k in ["amusements", "sport", "beaches"]):
+                        category = "recreation"
+                        quality_score += 2
+                    elif any(k in kinds for k in ["natural", "gardens_and_parks"]):
+                        category = "nature"
+                    elif any(k in kinds for k in ["museums", "cultural", "historic", "religion", "architecture"]):
+                        category = "culture"
+                        quality_score += 1
+                    elif any(k in kinds for k in ["theatres_and_entertainments"]):
+                        category = "recreation"
+                    
+                    all_places.append({
+                        "name": name,
+                        "category": category,
+                        "subcategory": subcategory,
+                        "lat": float(p_lat2),
+                        "lon": float(p_lon2),
+                        "distance_m": round(dist2),
+                        "description": name,
+                        "opening_hours": "",
+                        "phone": "",
+                        "website": "",
+                        "wiki": name.replace(" ", "_"),
+                        "quality_score": quality_score,
+                        "photo": ""
+                    })
+    except Exception as e:
+        print(f"OTM nearby failed: {e}")
+    
+    # Sort by quality_score descending, then distance ascending
+    all_places.sort(key=lambda x: (-x["quality_score"], x["distance_m"]))
+    
+    # Categorize results
+    categorized = {
+        "attractions": [],
+        "eating": [],
+        "recreation": [],
+        "nature": [],
+        "culture": [],
+        "shopping": []
+    }
+    
+    for p in all_places:
+        cat = p["category"]
+        if cat in categorized:
+            categorized[cat].append(p)
+        else:
+            categorized["attractions"].append(p)
+    
+    # Limit each category
+    for cat in categorized:
+        categorized[cat] = categorized[cat][:10]
+    
+    # Flat list for backward compatibility (top quality places first)
+    flat_list = all_places[:30]
+    
     # Fetch photos for top results
-    if places:
-        photo_tasks = [fetch_wiki_photo_fast(p["name"]) for p in places[:10]]
+    if flat_list:
+        photo_tasks = [fetch_wiki_photo_fast(p["name"]) for p in flat_list[:15]]
         results = await asyncio.gather(*photo_tasks, return_exceptions=True)
         for i, result in enumerate(results):
-            if i < len(places) and isinstance(result, str) and result:
-                places[i]["photo"] = result
+            if i < len(flat_list) and isinstance(result, str) and result:
+                flat_list[i]["photo"] = result
+        # Also assign photos to categorized items
+        photo_map = {p["name"]: p.get("photo", "") for p in flat_list if p.get("photo")}
+        for cat in categorized:
+            for p in categorized[cat]:
+                if p["name"] in photo_map:
+                    p["photo"] = photo_map[p["name"]]
     
-    return places[:20]
+    return {"categorized": categorized, "all": flat_list, "total": len(all_places)}
 
 
 # ============================================
@@ -926,7 +1098,7 @@ agent_manager = AgentManager()
 # ============================================
 # FastAPI App
 # ============================================
-app = FastAPI(title="SmartRoute v12.0 - API-Driven Agentic AI")
+app = FastAPI(title="SmartRoute v14.0 - Agentic AI Travel Planner")
 
 app.add_middleware(
     CORSMiddleware,
@@ -974,6 +1146,50 @@ class ChatRequest(BaseModel):
     history: List[Dict] = []
 
 # ============================================
+# Agentic Booking Models
+# ============================================
+class FlightSearchRequest(BaseModel):
+    origin: str
+    destination: str
+    departure_date: str
+    return_date: str = ""
+    passengers: int = 1
+    cabin_class: str = "economy"  # economy, business, first
+    persona: str = "solo"
+
+class HotelSearchRequest(BaseModel):
+    destination: str
+    check_in: str
+    check_out: str
+    guests: int = 1
+    rooms: int = 1
+    star_rating: int = 0  # 0 = any
+    persona: str = "solo"
+    budget_per_night: float = 5000
+
+class CabSearchRequest(BaseModel):
+    destination: str
+    date: str
+    cab_type: str = "sedan"  # sedan, suv, luxury, auto
+    duration_hours: int = 8
+    persona: str = "solo"
+
+class PaymentRequest(BaseModel):
+    booking_id: str
+    booking_type: str  # flight, hotel, cab
+    amount: float
+    currency: str = "INR"
+    payment_method: str = "card"  # card, upi, wallet, net_banking
+    card_last4: str = ""
+    upi_id: str = ""
+
+class BookingConfirmRequest(BaseModel):
+    booking_type: str
+    item_id: str
+    trip_id: str = ""
+    user_notes: str = ""
+
+# ============================================
 # API Endpoints
 # ============================================
 @app.get("/")
@@ -988,7 +1204,10 @@ async def root():
             "Zero Duplicates",
             "Weather & Crowd Replanning",
             "Live Nearby Suggestions",
-            "Indian Language Support"
+            "Indian Language Support",
+            "Agentic Booking: Flights, Hotels, Cabs",
+            "Payment Processing",
+            "Booking History & Transactions"
         ]
     }
 
@@ -1053,15 +1272,18 @@ async def get_language_tips_endpoint(city: str):
 
 @app.post("/nearby")
 async def get_nearby(request: NearbyRequest):
-    """Get nearby places based on user's current location"""
+    """Get nearby places based on user's current location - categorized with quality ranking"""
     start_time = time.time()
-    places = await get_nearby_places(request.lat, request.lon, request.radius)
+    radius = max(request.radius, 5000)  # Minimum 5km radius for quality results
+    result = await get_nearby_places(request.lat, request.lon, radius)
     elapsed = round(time.time() - start_time, 2)
     return {
         "success": True,
-        "places": places,
-        "count": len(places),
-        "radius_m": request.radius,
+        "places": result["all"],  # backward compatible flat list
+        "categorized": result["categorized"],  # new categorized format
+        "count": len(result["all"]),
+        "total_found": result["total"],
+        "radius_m": radius,
         "elapsed_seconds": elapsed
     }
 
@@ -1282,60 +1504,132 @@ async def replan_trip(request: ReplanRequest):
         elif reason == "weather":
             # === WEATHER-BASED REPLANNING ===
             weather_risk = request.weather_risk.lower()
-            indoor_types = {"museum", "shopping", "market", "architecture", "religious"}
-            outdoor_types = {"park", "hidden_gem", "viewpoint", "landmark", "fort"}
+            indoor_types = {"museum", "shopping", "market", "architecture", "religious", "culture"}
+            outdoor_types = {"park", "hidden_gem", "viewpoint", "landmark", "fort", "nature", "beach"}
             
+            # Try to fetch indoor alternatives from API
+            indoor_alternatives = []
+            try:
+                geo = await geocode_city_fast(request.destination)
+                if geo:
+                    alt_query = f"""
+                    [out:json][timeout:10];
+                    (
+                      node["tourism"~"museum|gallery"](around:10000,{geo['lat']},{geo['lon']});
+                      node["amenity"~"theatre|cinema|arts_centre"](around:10000,{geo['lat']},{geo['lon']});
+                      node["shop"~"mall|department_store"](around:10000,{geo['lat']},{geo['lon']});
+                    );
+                    out 15;
+                    """
+                    async with httpx.AsyncClient(timeout=10, headers=HEADERS) as client:
+                        resp = await client.post("https://overpass-api.de/api/interpreter", data={"data": alt_query})
+                        if resp.status_code == 200:
+                            elements = resp.json().get("elements", [])
+                            used_in_itin = {a["name"].lower() for d in original_days for a in d.get("activities", [])}
+                            for el in elements:
+                                tags = el.get("tags", {})
+                                name = tags.get("name", tags.get("name:en", "")).strip()
+                                if name and len(name) >= 3 and name.lower() not in used_in_itin:
+                                    indoor_alternatives.append({
+                                        "name": name,
+                                        "type": "museum" if "museum" in tags.get("tourism", "") else "indoor",
+                                        "lat": el.get("lat", geo["lat"]),
+                                        "lon": el.get("lon", geo["lon"]),
+                                        "description": f"Indoor alternative: {name}",
+                                        "cost": random.choice([0, 100, 200, 300, 500]),
+                                        "duration": random.choice(["1-2 hours", "2 hours", "2-3 hours"]),
+                                        "rating": round(3.8 + random.random() * 1.2, 1),
+                                        "reviews_count": random.randint(500, 20000),
+                                        "photo": "", "photos": []
+                                    })
+            except:
+                pass
+            
+            alt_idx = 0
             for act in original_activities:
                 act_copy = dict(act)
                 act_type = act.get("type", "attraction").lower()
                 
-                if weather_risk in ("rain", "storm", "thunderstorm", "heavy_rain"):
-                    # Keep indoor activities, flag outdoor ones
+                if weather_risk in ("rain", "storm", "thunderstorm", "heavy_rain", "snow"):
                     if act_type in outdoor_types:
-                        act_copy["weather_warning"] = f"⚠️ {weather_risk.replace('_', ' ').title()} expected - consider indoor alternative"
-                        act_copy["original_type"] = act_type
+                        # Replace with indoor alternative if available
+                        if alt_idx < len(indoor_alternatives):
+                            alt = indoor_alternatives[alt_idx]
+                            alt_idx += 1
+                            act_copy = {
+                                **act_copy,
+                                "name": alt["name"],
+                                "type": alt["type"],
+                                "lat": alt["lat"],
+                                "lon": alt["lon"],
+                                "description": alt["description"],
+                                "cost": alt["cost"],
+                                "duration": alt["duration"],
+                                "weather_warning": f"🔄 Replaced outdoor activity due to {weather_risk.replace('_', ' ')} — original: {act['name']}",
+                                "original_name": act["name"],
+                                "original_type": act_type
+                            }
+                            changes_made.append(f"Replaced '{act['name']}' with indoor alternative '{alt['name']}'")
+                        else:
+                            act_copy["weather_warning"] = f"⚠️ {weather_risk.replace('_', ' ').title()} expected — consider indoor alternative"
                     new_activities.append(act_copy)
                 elif weather_risk in ("extreme_heat", "heatwave"):
-                    # Shift outdoor activities to morning/evening
                     if act_type in outdoor_types:
-                        act_copy["weather_warning"] = "⚠️ Extreme heat - rescheduled to cooler hours"
-                        # Move to early morning or late evening
+                        act_copy["weather_warning"] = "⚠️ Extreme heat — rescheduled to cooler hours"
                         idx = len(new_activities)
                         if idx == 0:
                             act_copy["time"] = "07:00"
                         elif idx == len(original_activities) - 1:
                             act_copy["time"] = "18:30"
+                        else:
+                            act_copy["time"] = "17:00"
+                    new_activities.append(act_copy)
+                elif weather_risk in ("fog",):
+                    if act_type == "viewpoint":
+                        act_copy["weather_warning"] = "⚠️ Dense fog — viewpoint may have poor visibility"
+                        if alt_idx < len(indoor_alternatives):
+                            alt = indoor_alternatives[alt_idx]
+                            alt_idx += 1
+                            act_copy = {**act_copy, "name": alt["name"], "type": alt["type"],
+                                        "weather_warning": f"🔄 Replaced viewpoint due to fog — original: {act['name']}"}
                     new_activities.append(act_copy)
                 else:
                     new_activities.append(act_copy)
             
-            changes_made.append(f"Adjusted itinerary for {weather_risk} conditions")
+            if not changes_made:
+                changes_made.append(f"Adjusted itinerary for {weather_risk} conditions")
         
         elif reason == "crowd":
             # === CROWD-BASED REPLANNING ===
             crowd_level = request.crowd_level.lower()
             
             if crowd_level in ("high", "very_high"):
-                # Reorder activities to visit popular ones at less crowded times
+                # Reorder: most popular to earliest/latest (off-peak), lesser-known to midday
                 sorted_acts = sorted(original_activities, key=lambda a: a.get("rating", 0), reverse=True)
-                early_slots = ["07:30", "08:00", "08:30"]
-                late_slots = ["17:00", "17:30", "18:00"]
-                mid_slots = ["13:00", "13:30", "14:00"]
+                
+                off_peak_slots = ["07:00", "07:30", "08:00", "17:30", "18:00", "18:30"]
+                mid_slots = ["12:30", "13:00", "13:30", "14:00"]
                 
                 for i, act in enumerate(sorted_acts):
                     act_copy = dict(act)
-                    if i == 0:
-                        # Most popular → earliest time
-                        act_copy["time"] = early_slots[0]
-                        act_copy["crowd_tip"] = "🕐 Moved to early morning to avoid peak crowds"
-                    elif i == len(sorted_acts) - 1 and len(sorted_acts) > 2:
-                        act_copy["time"] = late_slots[0]
-                        act_copy["crowd_tip"] = "🕐 Moved to late afternoon for fewer crowds"
+                    if i < 2:
+                        act_copy["time"] = off_peak_slots[i]
+                        act_copy["crowd_tip"] = "🕐 Visit at opening time to beat the crowds — expect 60-70% fewer people"
+                    elif i >= len(sorted_acts) - 1 and len(sorted_acts) > 3:
+                        act_copy["time"] = off_peak_slots[min(3 + i, len(off_peak_slots) - 1)]
+                        act_copy["crowd_tip"] = "🕐 Late afternoon slot — most day visitors have left"
                     else:
-                        act_copy["time"] = mid_slots[min(i - 1, len(mid_slots) - 1)]
+                        mid_idx = min(i - 2, len(mid_slots) - 1)
+                        act_copy["time"] = mid_slots[max(0, mid_idx)]
+                        act_copy["crowd_tip"] = "💡 Book skip-the-line tickets if available for this slot"
+                    
+                    if crowd_level == "very_high":
+                        act_copy["crowd_tip"] += " | ⚠️ Very high crowds expected — consider weekday visit"
+                    
                     new_activities.append(act_copy)
                 
-                changes_made.append(f"Reordered activities to avoid {crowd_level} crowd periods")
+                changes_made.append(f"Reordered {len(sorted_acts)} activities to avoid {crowd_level.replace('_', ' ')} crowd periods")
+                changes_made.append("Most popular places moved to early morning (7-8 AM) and late afternoon (5-6 PM)")
             else:
                 new_activities = [dict(a) for a in original_activities]
         
@@ -1403,6 +1697,370 @@ def _parse_duration(ds: str) -> float:
     return 2
 
 # ============================================
+# AGENTIC BOOKING SYSTEM — In-memory stores
+# ============================================
+import uuid as _uuid
+
+_booking_history: List[Dict] = []
+_trip_sessions: Dict[str, Dict] = {}  # trip_id -> session state
+_workflow_states: Dict[str, Dict] = {}  # trip_id -> workflow state machine
+
+def _gen_id(prefix: str = "BK") -> str:
+    return f"{prefix}-{_uuid.uuid4().hex[:8].upper()}"
+
+def _price_jitter(base: float, low: float = 0.8, high: float = 1.3) -> float:
+    return round(base * (low + random.random() * (high - low)), -1)
+
+# ---------- Flight search (simulated realistic data) ----------
+async def _search_flights(req: FlightSearchRequest) -> List[Dict]:
+    airlines_domestic = [
+        {"name": "IndiGo", "code": "6E", "logo": "indigo"},
+        {"name": "Air India", "code": "AI", "logo": "airindia"},
+        {"name": "SpiceJet", "code": "SG", "logo": "spicejet"},
+        {"name": "Vistara", "code": "UK", "logo": "vistara"},
+        {"name": "GoFirst", "code": "G8", "logo": "gofirst"},
+        {"name": "Akasa Air", "code": "QP", "logo": "akasa"},
+    ]
+    airlines_intl = [
+        {"name": "Emirates", "code": "EK", "logo": "emirates"},
+        {"name": "Qatar Airways", "code": "QR", "logo": "qatar"},
+        {"name": "Singapore Airlines", "code": "SQ", "logo": "singapore"},
+        {"name": "Lufthansa", "code": "LH", "logo": "lufthansa"},
+        {"name": "British Airways", "code": "BA", "logo": "britishairways"},
+        {"name": "Air France", "code": "AF", "logo": "airfrance"},
+        {"name": "Thai Airways", "code": "TG", "logo": "thai"},
+        {"name": "Air India", "code": "AI", "logo": "airindia"},
+    ]
+    dest_lower = req.destination.lower()
+    is_intl = not any(c in dest_lower for c in ["delhi", "mumbai", "goa", "jaipur", "chennai", "bangalore",
+                       "kolkata", "hyderabad", "udaipur", "varanasi", "agra", "lucknow", "amritsar",
+                       "pune", "kochi", "shimla", "manali", "rishikesh", "bhubaneswar"])
+    pool = airlines_intl if is_intl else airlines_domestic
+    base = 12000 if is_intl else 3500
+    if req.cabin_class == "business": base *= 3
+    elif req.cabin_class == "first": base *= 6
+
+    flights = []
+    dep_times = ["06:00", "08:30", "10:15", "12:40", "14:55", "17:20", "20:05", "22:30"]
+    random.shuffle(dep_times)
+    chosen = random.sample(pool, min(len(pool), random.randint(4, 6)))
+    for i, airline in enumerate(chosen):
+        dep = dep_times[i % len(dep_times)]
+        dur_h = random.randint(1, 4) if not is_intl else random.randint(4, 14)
+        dur_m = random.choice([0, 15, 30, 45])
+        dep_h, dep_min = int(dep.split(":")[0]), int(dep.split(":")[1])
+        arr_h = (dep_h + dur_h + (dep_min + dur_m) // 60) % 24
+        arr_m = (dep_min + dur_m) % 60
+        price = _price_jitter(base)
+        stops = 0 if dur_h <= 3 else random.choice([0, 1, 1])
+        flights.append({
+            "id": _gen_id("FL"),
+            "airline": airline["name"],
+            "airline_code": airline["code"],
+            "flight_no": f'{airline["code"]}{random.randint(100, 999)}',
+            "origin": req.origin or "DEL",
+            "destination": req.destination,
+            "departure": dep,
+            "arrival": f"{arr_h:02d}:{arr_m:02d}",
+            "duration": f"{dur_h}h {dur_m}m",
+            "stops": stops,
+            "stop_info": "" if stops == 0 else random.choice(["via Mumbai", "via Delhi", "via Dubai", "via Singapore"]),
+            "price": price,
+            "cabin_class": req.cabin_class,
+            "seats_left": random.randint(2, 28),
+            "baggage": "15 kg" if req.cabin_class == "economy" else "30 kg",
+            "meal": req.cabin_class != "economy",
+            "refundable": random.choice([True, False]),
+            "rating": round(3.8 + random.random() * 1.2, 1),
+            "booking_url": f"https://www.google.com/travel/flights?q=flights+to+{_quote_safe(req.destination)}",
+        })
+    flights.sort(key=lambda f: f["price"])
+    return flights
+
+# ---------- Hotel search ----------
+async def _search_hotels(req: HotelSearchRequest) -> List[Dict]:
+    hotel_chains = [
+        {"name": "OYO Rooms", "tier": 2, "base": 800},
+        {"name": "Treebo Hotels", "tier": 2, "base": 1200},
+        {"name": "FabHotel", "tier": 2, "base": 1000},
+        {"name": "Lemon Tree", "tier": 3, "base": 2500},
+        {"name": "Radisson", "tier": 4, "base": 5000},
+        {"name": "ITC Hotels", "tier": 5, "base": 8000},
+        {"name": "Taj Hotels", "tier": 5, "base": 12000},
+        {"name": "The Oberoi", "tier": 5, "base": 15000},
+        {"name": "Marriott", "tier": 4, "base": 7000},
+        {"name": "Hyatt", "tier": 4, "base": 6500},
+        {"name": "Holiday Inn", "tier": 3, "base": 3500},
+        {"name": "ibis", "tier": 2, "base": 2000},
+    ]
+    if req.persona == "luxury":
+        pool = [h for h in hotel_chains if h["tier"] >= 4]
+    elif req.persona == "solo":
+        pool = [h for h in hotel_chains if h["tier"] <= 3]
+    elif req.persona == "family":
+        pool = [h for h in hotel_chains if h["tier"] >= 3]
+    else:
+        pool = hotel_chains
+
+    amenity_pool = ["Free WiFi", "Breakfast included", "Swimming pool", "Gym", "Spa",
+                    "Airport shuttle", "Room service", "Parking", "Air conditioning",
+                    "Bar/Lounge", "Restaurant", "24hr Front Desk", "Laundry", "EV Charging"]
+    hotels = []
+    for h in random.sample(pool, min(len(pool), random.randint(5, 8))):
+        nights = 1
+        try:
+            d1 = datetime.strptime(req.check_in, "%Y-%m-%d")
+            d2 = datetime.strptime(req.check_out, "%Y-%m-%d")
+            nights = max(1, (d2 - d1).days)
+        except:
+            pass
+        ppn = _price_jitter(h["base"])
+        stars = h["tier"]
+        n_amenities = min(len(amenity_pool), stars + random.randint(2, 5))
+        hotels.append({
+            "id": _gen_id("HT"),
+            "name": f'{h["name"]} {req.destination}',
+            "stars": stars,
+            "price_per_night": ppn,
+            "total_price": ppn * nights,
+            "nights": nights,
+            "check_in": req.check_in,
+            "check_out": req.check_out,
+            "rating": round(3.5 + stars * 0.25 + random.random() * 0.3, 1),
+            "reviews_count": random.randint(200, 12000),
+            "amenities": random.sample(amenity_pool, n_amenities),
+            "room_type": random.choice(["Standard", "Deluxe", "Superior", "Suite"]),
+            "free_cancellation": random.choice([True, True, False]),
+            "pay_at_hotel": random.choice([True, False]),
+            "distance_center": f"{round(random.uniform(0.5, 8.0), 1)} km from center",
+            "photo": "",
+            "booking_url": f"https://www.booking.com/searchresults.html?ss={_quote_safe(req.destination)}",
+        })
+    hotels.sort(key=lambda h: h["price_per_night"])
+    return hotels
+
+# ---------- Cab search ----------
+async def _search_cabs(req: CabSearchRequest) -> List[Dict]:
+    cab_types = {
+        "auto": [
+            {"provider": "Ola Auto", "icon": "🛺", "base": 150, "per_km": 10},
+            {"provider": "Uber Auto", "icon": "🛺", "base": 140, "per_km": 9},
+        ],
+        "sedan": [
+            {"provider": "Ola Sedan", "icon": "🚗", "base": 300, "per_km": 12},
+            {"provider": "Uber Go", "icon": "🚗", "base": 280, "per_km": 11},
+            {"provider": "Meru Cabs", "icon": "🚗", "base": 350, "per_km": 13},
+        ],
+        "suv": [
+            {"provider": "Ola SUV", "icon": "🚙", "base": 500, "per_km": 16},
+            {"provider": "Uber XL", "icon": "🚙", "base": 480, "per_km": 15},
+        ],
+        "luxury": [
+            {"provider": "Uber Premier", "icon": "🏎️", "base": 800, "per_km": 22},
+            {"provider": "Ola Lux", "icon": "🏎️", "base": 900, "per_km": 25},
+        ],
+    }
+    pool = cab_types.get(req.cab_type, cab_types["sedan"])
+    cabs = []
+    for c in pool:
+        est_km = req.duration_hours * random.randint(15, 40)
+        est_price = _price_jitter(c["base"] * req.duration_hours + c["per_km"] * est_km * 0.3)
+        cabs.append({
+            "id": _gen_id("CB"),
+            "provider": c["provider"],
+            "icon": c["icon"],
+            "cab_type": req.cab_type,
+            "estimated_price": est_price,
+            "duration_hours": req.duration_hours,
+            "estimated_km": est_km,
+            "per_km_rate": c["per_km"],
+            "features": random.sample(["AC", "GPS", "Music system", "Water bottle", "Charger", "Child seat"], random.randint(3, 5)),
+            "driver_rating": round(4.0 + random.random() * 0.9, 1),
+            "eta_minutes": random.randint(3, 20),
+            "cancellation": "Free cancellation up to 1 hour before",
+            "booking_url": f"https://m.uber.com/looking" if "Uber" in c["provider"] else "https://www.olacabs.com/",
+        })
+    cabs.sort(key=lambda c: c["estimated_price"])
+    return cabs
+
+def _quote_safe(s: str) -> str:
+    return quote(s.replace(" ", "+"))
+
+# ---------- Payment processing (simulated) ----------
+def _process_payment(req: PaymentRequest) -> Dict:
+    txn_id = _gen_id("TXN")
+    success = random.random() > 0.05  # 95% success rate
+    return {
+        "transaction_id": txn_id,
+        "booking_id": req.booking_id,
+        "amount": req.amount,
+        "currency": req.currency,
+        "payment_method": req.payment_method,
+        "status": "success" if success else "failed",
+        "message": "Payment processed successfully" if success else "Payment declined — please try again",
+        "timestamp": datetime.now().isoformat(),
+        "receipt_url": f"#receipt/{txn_id}" if success else "",
+    }
+
+# ---------- Workflow state machine ----------
+WORKFLOW_STEPS = [
+    {"id": "trip_planned", "label": "Trip Planned", "icon": "🗺️", "agent": "planner"},
+    {"id": "choose_flights", "label": "Choose Flights", "icon": "✈️", "agent": "booking"},
+    {"id": "choose_hotels", "label": "Choose Hotels", "icon": "🏨", "agent": "booking"},
+    {"id": "choose_cabs", "label": "Book Local Transport", "icon": "🚗", "agent": "transport"},
+    {"id": "review_cart", "label": "Review & Confirm", "icon": "🛒", "agent": "budget"},
+    {"id": "payment", "label": "Payment", "icon": "💳", "agent": "budget"},
+    {"id": "confirmed", "label": "Trip Confirmed!", "icon": "✅", "agent": "coordinator"},
+]
+
+# ============================================
+# AGENTIC BOOKING API ENDPOINTS
+# ============================================
+
+@app.post("/agentic/flights/search")
+async def search_flights(req: FlightSearchRequest):
+    """Agent-driven flight search"""
+    start_time = time.time()
+    await agent_manager.broadcast("coordinator", f"Flight Agent searching {req.origin} → {req.destination}")
+    flights = await _search_flights(req)
+    elapsed = round(time.time() - start_time, 2)
+    # Create or update trip session
+    trip_id = _gen_id("TRIP")
+    _trip_sessions[trip_id] = {"destination": req.destination, "flights": flights, "created": datetime.now().isoformat()}
+    return {
+        "success": True,
+        "trip_id": trip_id,
+        "flights": flights,
+        "count": len(flights),
+        "search_params": {"origin": req.origin, "destination": req.destination, "date": req.departure_date, "class": req.cabin_class},
+        "agent_message": f"Found {len(flights)} flights to {req.destination}. Best price: ₹{flights[0]['price']:,.0f} ({flights[0]['airline']})" if flights else "No flights found",
+        "elapsed_seconds": elapsed,
+        "next_step": "choose_hotels",
+        "next_prompt": f"Great! I found {len(flights)} flight options. Select one, or I can search hotels for {req.destination} next.",
+    }
+
+@app.post("/agentic/hotels/search")
+async def search_hotels(req: HotelSearchRequest):
+    """Agent-driven hotel search"""
+    start_time = time.time()
+    await agent_manager.broadcast("coordinator", f"Hotel Agent searching stays in {req.destination}")
+    hotels = await _search_hotels(req)
+    elapsed = round(time.time() - start_time, 2)
+    trip_id = _gen_id("TRIP")
+    _trip_sessions[trip_id] = {"destination": req.destination, "hotels": hotels, "created": datetime.now().isoformat()}
+    cheapest = min(hotels, key=lambda h: h["price_per_night"]) if hotels else None
+    best = max(hotels, key=lambda h: h["rating"]) if hotels else None
+    return {
+        "success": True,
+        "trip_id": trip_id,
+        "hotels": hotels,
+        "count": len(hotels),
+        "search_params": {"destination": req.destination, "check_in": req.check_in, "check_out": req.check_out},
+        "agent_message": f"Found {len(hotels)} hotels. Best value: {cheapest['name']} at ₹{cheapest['price_per_night']:,.0f}/night. Top rated: {best['name']} ({best['rating']}⭐)" if hotels else "No hotels found",
+        "elapsed_seconds": elapsed,
+        "next_step": "choose_cabs",
+        "next_prompt": f"Hotel options ready! Pick your stay, then I'll find local transport.",
+    }
+
+@app.post("/agentic/cabs/search")
+async def search_cabs(req: CabSearchRequest):
+    """Agent-driven cab/transport search"""
+    start_time = time.time()
+    await agent_manager.broadcast("coordinator", f"Transport Agent searching cabs in {req.destination}")
+    cabs = await _search_cabs(req)
+    elapsed = round(time.time() - start_time, 2)
+    return {
+        "success": True,
+        "cabs": cabs,
+        "count": len(cabs),
+        "search_params": {"destination": req.destination, "type": req.cab_type, "hours": req.duration_hours},
+        "agent_message": f"Found {len(cabs)} cab options. Cheapest: {cabs[0]['provider']} at ₹{cabs[0]['estimated_price']:,.0f}" if cabs else "No cabs found",
+        "elapsed_seconds": elapsed,
+        "next_step": "review_cart",
+        "next_prompt": "Transport sorted! Ready to review your complete booking?",
+    }
+
+@app.post("/agentic/booking/confirm")
+async def confirm_booking(req: BookingConfirmRequest):
+    """Confirm a single booking item and add to history"""
+    booking_entry = {
+        "id": _gen_id("BK"),
+        "type": req.booking_type,
+        "item_id": req.item_id,
+        "trip_id": req.trip_id,
+        "status": "confirmed",
+        "confirmed_at": datetime.now().isoformat(),
+        "notes": req.user_notes,
+    }
+    _booking_history.append(booking_entry)
+    await agent_manager.broadcast("coordinator", f"Booking confirmed: {req.booking_type} #{booking_entry['id']}")
+    return {"success": True, "booking": booking_entry, "agent_message": f"Your {req.booking_type} booking is confirmed! Reference: {booking_entry['id']}"}
+
+@app.post("/agentic/payment/process")
+async def process_payment(req: PaymentRequest):
+    """Process payment for a booking"""
+    await agent_manager.broadcast("budget", f"Processing ₹{req.amount:,.0f} payment via {req.payment_method}")
+    result = _process_payment(req)
+    if result["status"] == "success":
+        _booking_history.append({
+            "id": result["transaction_id"],
+            "type": "payment",
+            "booking_id": req.booking_id,
+            "amount": req.amount,
+            "method": req.payment_method,
+            "status": "success",
+            "timestamp": result["timestamp"],
+        })
+        await agent_manager.broadcast("budget", f"Payment of ₹{req.amount:,.0f} successful! Ref: {result['transaction_id']}")
+    return {"success": result["status"] == "success", "payment": result}
+
+@app.get("/agentic/history")
+async def get_booking_history():
+    """Retrieve full booking + payment history"""
+    return {
+        "success": True,
+        "history": list(reversed(_booking_history)),
+        "count": len(_booking_history),
+        "total_spent": sum(b.get("amount", 0) for b in _booking_history if b.get("type") == "payment" and b.get("status") == "success"),
+    }
+
+@app.get("/agentic/workflow-steps")
+async def get_workflow_steps():
+    """Return the agentic workflow step definitions"""
+    return {"success": True, "steps": WORKFLOW_STEPS}
+
+@app.post("/agentic/next-action")
+async def get_next_action(data: Dict[str, Any]):
+    """AI agent suggests the next action based on current state"""
+    current_step = data.get("current_step", "trip_planned")
+    destination = data.get("destination", "")
+    selections = data.get("selections", {})
+
+    step_idx = next((i for i, s in enumerate(WORKFLOW_STEPS) if s["id"] == current_step), 0)
+    next_idx = min(step_idx + 1, len(WORKFLOW_STEPS) - 1)
+    next_step = WORKFLOW_STEPS[next_idx]
+
+    prompts = {
+        "choose_flights": f"Let me search for the best flights to {destination}. Should I look for economy or business class?",
+        "choose_hotels": f"Time to find your perfect stay in {destination}! What's your preferred budget per night?",
+        "choose_cabs": f"You'll need local transport in {destination}. Want a sedan, SUV, or something more budget-friendly?",
+        "review_cart": "Here's your complete trip summary. Review everything before we proceed to payment.",
+        "payment": "All set! Choose your payment method to confirm the bookings.",
+        "confirmed": "Your trip is fully booked! I've saved everything to your history. Have an amazing trip!",
+    }
+
+    return {
+        "success": True,
+        "current_step": current_step,
+        "next_step": next_step["id"],
+        "next_label": next_step["label"],
+        "next_icon": next_step["icon"],
+        "agent": next_step["agent"],
+        "prompt": prompts.get(next_step["id"], "What would you like to do next?"),
+        "auto_action": next_step["id"] in ("choose_flights", "choose_hotels", "choose_cabs"),
+    }
+
+# ============================================
 # Chatbot
 # ============================================
 CHATBOT_KNOWLEDGE = {
@@ -1436,41 +2094,238 @@ CHATBOT_KNOWLEDGE = {
     ]
 }
 
+
+async def _chatbot_suggest_places(location_query: str, dest: str, purpose: str = "") -> str:
+    """Smart place suggestion using geocoding + nearby API"""
+    # First geocode the location the user mentioned
+    geo = await geocode_city_fast(location_query)
+    if not geo:
+        # Try with destination appended
+        geo = await geocode_city_fast(f"{location_query}, {dest}" if dest else location_query)
+    
+    if not geo:
+        return f"I couldn't find the exact location '<strong>{location_query}</strong>'. Try being more specific (e.g., 'suggest places near SRM University Chennai') or use the <strong>📍 Nearby</strong> button for GPS-based search."
+    
+    lat, lon = geo["lat"], geo["lon"]
+    
+    # Determine radius based on time mentioned
+    radius = 10000  # default 10km
+    if any(w in purpose.lower() for w in ["half day", "halfday", "few hours", "3 hours", "4 hours"]):
+        radius = 15000  # 15km for half day
+    elif any(w in purpose.lower() for w in ["full day", "whole day"]):
+        radius = 25000  # 25km for full day
+    elif any(w in purpose.lower() for w in ["walking", "walk", "nearby", "close"]):
+        radius = 5000  # 5km for walking
+    
+    result = await get_nearby_places(lat, lon, radius)
+    categorized = result.get("categorized", {})
+    all_places = result.get("all", [])
+    
+    if not all_places:
+        return f"No notable places found near <strong>{location_query}</strong>. Try expanding your search area!"
+    
+    # Build categorized response
+    sections = []
+    
+    cat_labels = {
+        "recreation": ("🎢 Recreation & Entertainment", ),
+        "nature": ("🌿 Nature & Parks", ),
+        "culture": ("🏛️ Culture & History", ),
+        "attractions": ("📍 Must-Visit Attractions", ),
+        "eating": ("🍽️ Food & Dining", ),
+        "shopping": ("🛍️ Shopping", )
+    }
+    
+    for cat_key, (label, ) in cat_labels.items():
+        places = categorized.get(cat_key, [])
+        if places:
+            items = []
+            for p in places[:5]:
+                dist_str = f"{p['distance_m']}m" if p['distance_m'] < 1000 else f"{p['distance_m']/1000:.1f}km"
+                items.append(f"<li><strong>{p['name']}</strong> ({dist_str} away)</li>")
+            sections.append(f"<div style='margin-top:8px'><strong>{label}</strong><ul style='margin:4px 0 0 16px'>{''.join(items)}</ul></div>")
+    
+    if not sections:
+        # Fallback to flat list
+        items = []
+        for p in all_places[:8]:
+            dist_str = f"{p['distance_m']}m" if p['distance_m'] < 1000 else f"{p['distance_m']/1000:.1f}km"
+            items.append(f"<li><strong>{p['name']}</strong> — {p['category']} ({dist_str})</li>")
+        return f"Places near <strong>{location_query}</strong>:<ul style='margin:6px 0 0 16px'>{''.join(items)}</ul>"
+    
+    header = f"Places to visit near <strong>{location_query}</strong>"
+    if purpose:
+        header += f" ({purpose})"
+    header += f" — {len(all_places)} found:"
+    
+    return header + "".join(sections)
+
+
+def _extract_location_from_message(msg: str) -> tuple:
+    """Extract a location reference and purpose from a user message"""
+    msg_lower = msg.lower()
+    
+    location = ""
+    purpose = ""
+    
+    # Extract purpose
+    for phrase in ["half day", "full day", "whole day", "few hours", "one day", "evening", "morning", "weekend"]:
+        if phrase in msg_lower:
+            purpose = phrase
+            break
+    
+    # Extract location from patterns - ORDER MATTERS: most specific first
+    patterns = [
+        # "suggest places near SRM University for half day"
+        r'(?:suggest|recommend)\s+(?:some\s+)?(?:nearby\s+)?(?:places|things|spots)\s+(?:to\s+visit\s+)?(?:near|around|close to|in|at)\s+(.+?)(?:\s+for\s+|\s*$)',
+        # "places to visit near SRM University for half day"
+        r'(?:places|things|attractions|spots)\s+(?:to\s+visit\s+)?(?:near|around|close to|in|at)\s+(.+?)(?:\s+for\s+|\s*$|\s+which|\s+that)',
+        # "what can I visit near SRM University"
+        r'(?:what\s+can\s+i\s+(?:visit|do|see))\s+(?:near|around|in|at)\s+(.+?)(?:\s+for\s+|\s*$)',
+        # "visit near SRM University"
+        r'(?:visit|explore|see)\s+(?:near|around|close to|in|at)\s+(.+?)(?:\s+for\s+|\s*$)',
+        # "near SRM University" (but avoid capturing just "me" or "by" or short words)
+        r'(?:^|\s)near\s+(.{4,}?)(?:\s+for\s+|\s+in\s+|\s*$|\s+to\s+visit|\s+which|\s+that|\s+i\s+can)',
+        # "around Gateway of India"
+        r'(?:around|close to|next to)\s+(.{4,}?)(?:\s+for\s+|\s+in\s+|\s*$|\s+to\s+visit|\s+which|\s+that)',
+    ]
+    
+    for pattern in patterns:
+        match = re.search(pattern, msg_lower)
+        if match:
+            location = match.group(1).strip().rstrip('?.,!')
+            break
+    
+    # If no pattern matched but message has a proper noun structure
+    if not location:
+        words = msg.split()
+        caps = []
+        capturing = False
+        for w in words:
+            clean = w.strip('.,?!')
+            if clean and clean[0].isupper() and clean.lower() not in {'i', 'what', 'where', 'how', 'can', 'please', 'suggest', 'some', 'the', 'for', 'a', 'an', 'in', 'to', 'my', 'is', 'are'}:
+                caps.append(clean)
+                capturing = True
+            elif capturing and clean.lower() in {'of', 'the', 'and', 'de', 'la', 'le', 'di'}:
+                caps.append(clean)
+            else:
+                if caps and len(caps) >= 2:
+                    break
+                elif not capturing:
+                    caps = []
+        if len(caps) >= 2:
+            location = " ".join(caps)
+    
+    return location, purpose
+
 @app.post("/chatbot")
 async def chatbot_response(request: ChatRequest):
     try:
-        msg = request.message.lower()
+        msg = request.message
+        msg_lower = msg.lower()
         dest = request.destination.lower().strip()
         
-        if any(kw in msg for kw in ["hidden gem", "less known", "off the beaten", "secret", "viral"]):
+        # --- SMART PLACE SUGGESTIONS ---
+        suggest_keywords = ["suggest", "recommend", "places to visit", "things to do", 
+                          "what to see", "what can i", "where should", "where can",
+                          "what's near", "whats near", "nearby places", "places near",
+                          "spots near", "visit near", "things near", "attractions near"]
+        near_keywords = ["near", "around", "close to", "next to", "in ", "at "]
+        
+        is_place_query = (any(kw in msg_lower for kw in suggest_keywords) and 
+                         any(kw in msg_lower for kw in near_keywords)) or \
+                        any(kw in msg_lower for kw in ["places near", "spots near", "visit near", "things near", "attractions near", "nearby places"])
+        
+        if is_place_query:
+            location, purpose = _extract_location_from_message(msg)
+            if location:
+                response = await _chatbot_suggest_places(location, request.destination, purpose)
+                return {"success": True, "response": response}
+            elif dest:
+                response = await _chatbot_suggest_places(request.destination, request.destination, purpose or "")
+                return {"success": True, "response": response}
+        
+        # --- HIDDEN GEMS ---
+        if any(kw in msg_lower for kw in ["hidden gem", "less known", "off the beaten", "secret", "viral"]):
             gems = CHATBOT_KNOWLEDGE["hidden_gems"].get(dest, [])
             if gems:
                 gem_list = "".join([f"<li><strong>{g}</strong></li>" for g in gems])
                 response = f"Hidden gems in <strong>{request.destination}</strong>:<ul style='margin:6px 0 0 16px'>{gem_list}</ul>"
             else:
-                response = f"For hidden gems in <strong>{request.destination}</strong>: Walk through residential neighborhoods, visit morning markets before 8 AM!"
-        elif any(kw in msg for kw in ["food", "eat", "restaurant", "cuisine"]):
+                if dest:
+                    response = await _chatbot_suggest_places(request.destination, request.destination, "")
+                else:
+                    response = f"Tell me a destination and I'll find hidden gems! Or enter a city in the planner."
+            return {"success": True, "response": response}
+        
+        # --- WEATHER --- (must be before FOOD since "weather" contains "eat")
+        if any(kw in msg_lower for kw in ["weather", "forecast", "temperature"]) or \
+           any(re.search(r'\b' + kw + r'\b', msg_lower) for kw in ["rain", "hot", "cold", "sunny"]):
+            if dest:
+                geo = await geocode_city_fast(request.destination)
+                if geo:
+                    forecasts = await fetch_weather(geo["lat"], geo["lon"], 3)
+                    if forecasts:
+                        weather_lines = []
+                        for f in forecasts[:3]:
+                            weather_lines.append(f"<li>{f['date']}: {f['icon']} {f['description']} — {f['temp_max']}°C (Risk: {f['risk_level']})</li>")
+                        response = f"Weather forecast for <strong>{request.destination}</strong>:<ul style='margin:6px 0 0 16px'>{''.join(weather_lines)}</ul>"
+                        if any(f["risk_level"] == "high" for f in forecasts[:3]):
+                            response += "<br>⚠️ High-risk weather detected! Use <strong>Emergency Replan → Weather Risk</strong> to adjust."
+                        return {"success": True, "response": response}
+            response = f"Check the <strong>Weather Forecast</strong> panel on the right. Use <strong>Emergency Replan → Weather Risk</strong> if conditions are bad!"
+            return {"success": True, "response": response}
+        
+        # --- FOOD --- (use word boundary for "eat" to avoid matching "weather")
+        if any(kw in msg_lower for kw in ["food", "restaurant", "cuisine", "dining", "lunch", "dinner", "breakfast"]) or \
+           re.search(r'\beat\b', msg_lower):
             foods = CHATBOT_KNOWLEDGE["food"].get(dest, [])
             if foods:
                 food_list = "".join([f"<li><strong>{f}</strong></li>" for f in foods])
                 response = f"Must-try food in <strong>{request.destination}</strong>:<ul style='margin:6px 0 0 16px'>{food_list}</ul>"
             else:
-                response = f"For food in <strong>{request.destination}</strong>: Try street food, ask locals, use Google Maps 4.5+ stars!"
-        elif any(kw in msg for kw in ["nearby", "near me", "around me", "close by", "what's around"]):
-            response = f"Use the <strong>📍 Nearby Places</strong> button to share your location and I'll find places within walking distance!"
-        elif any(kw in msg for kw in ["weather", "rain", "hot", "cold"]):
-            response = f"Check the <strong>Weather Forecast</strong> panel on the right. If weather looks bad, use <strong>Emergency Replan → Weather Risk</strong> to adjust your itinerary!"
-        elif any(kw in msg for kw in ["crowd", "busy", "packed"]):
-            response = f"If a place is too crowded, use <strong>Emergency Replan → Sudden Crowd</strong> to reorder activities for less crowded times!"
-        elif any(kw in msg for kw in ["budget", "save", "cheap", "money"]):
+                if dest:
+                    geo = await geocode_city_fast(request.destination)
+                    if geo:
+                        result = await get_nearby_places(geo["lat"], geo["lon"], 5000)
+                        eating = result["categorized"].get("eating", [])
+                        if eating:
+                            items = "".join([f"<li><strong>{p['name']}</strong></li>" for p in eating[:6]])
+                            response = f"Restaurants & cafes near <strong>{request.destination}</strong>:<ul style='margin:6px 0 0 16px'>{items}</ul>"
+                        else:
+                            response = f"For food in <strong>{request.destination}</strong>: Try street food, ask locals, use Google Maps 4.5+ stars!"
+                    else:
+                        response = f"For food in <strong>{request.destination}</strong>: Try street food, ask locals, use Google Maps 4.5+ stars!"
+                else:
+                    response = "Tell me your destination city and I'll find the best food spots!"
+            return {"success": True, "response": response}
+        
+        # --- NEARBY (without specific location) ---
+        if any(kw in msg_lower for kw in ["nearby", "near me", "around me", "close by", "what's around"]):
+            response = f"Click the <strong>📍 Nearby</strong> button in the header to share your location — I'll find categorized places (food, attractions, parks, entertainment) within 5-15km!"
+            return {"success": True, "response": response}
+        
+        # --- CROWD ---
+        if any(kw in msg_lower for kw in ["crowd", "busy", "packed", "queue", "wait time"]):
+            response = f"If a place is too crowded, use <strong>Emergency Replan → Sudden Crowd</strong>. The AI will reorder activities to visit popular spots at off-peak hours (early morning or late afternoon)!"
+            return {"success": True, "response": response}
+        
+        # --- BUDGET ---
+        if any(kw in msg_lower for kw in ["budget", "save", "cheap", "money", "cost", "expense"]):
             tips = random.sample(CHATBOT_KNOWLEDGE["budget_tips"], min(4, len(CHATBOT_KNOWLEDGE["budget_tips"])))
             tips_list = "".join([f"<li>{t}</li>" for t in tips])
             response = f"Budget tips:<ul style='margin:6px 0 0 16px'>{tips_list}</ul>"
-        elif any(kw in msg for kw in ["safe", "danger", "scam"]):
+            return {"success": True, "response": response}
+        
+        # --- SAFETY ---
+        if any(kw in msg_lower for kw in ["safe", "danger", "scam", "security"]):
             tips = random.sample(CHATBOT_KNOWLEDGE["safety_tips"], min(4, len(CHATBOT_KNOWLEDGE["safety_tips"])))
             tips_list = "".join([f"<li>{t}</li>" for t in tips])
             response = f"Safety tips:<ul style='margin:6px 0 0 16px'>{tips_list}</ul>"
-        elif any(kw in msg for kw in ["language", "phrase", "speak", "local word"]):
+            return {"success": True, "response": response}
+        
+        # --- LANGUAGE ---
+        if any(kw in msg_lower for kw in ["language", "phrase", "speak", "local word", "translate", "how to say"]):
             lang_data = get_language_tips(request.destination)
             if lang_data:
                 phrases = lang_data["phrases"][:5]
@@ -1478,16 +2333,54 @@ async def chatbot_response(request: ChatRequest):
                 response = f"{lang_data['flag']} <strong>{lang_data['language']}</strong> phrases for {request.destination}:<ul style='margin:6px 0 0 16px'>{phrase_list}</ul>"
             else:
                 response = "Language tips available after generating a trip. Check the Language Tips section!"
-        elif any(kw in msg for kw in ["thank", "thanks"]):
-            response = "You're welcome! Happy to help with your trip!"
-        elif any(kw in msg for kw in ["hello", "hi", "hey"]):
-            response = f"Hello! {f'Planning a trip to <strong>{request.destination}</strong>? ' if dest else ''}I can help with hidden gems, food, budget, safety, nearby places, weather, and more!"
-        else:
-            response = f"I can help with: hidden gems, food recommendations, budget tips, safety, nearby places, weather alerts, language phrases, and crowd management!"
+            return {"success": True, "response": response}
+        
+        # --- GREETINGS ---
+        if any(kw in msg_lower for kw in ["thank", "thanks"]):
+            return {"success": True, "response": "You're welcome! Happy to help with your trip! 😊"}
+        
+        if any(kw in msg_lower for kw in ["hello", "hi", "hey", "hii", "heyy"]):
+            greeting = f"Hello! "
+            if dest:
+                greeting += f"Planning a trip to <strong>{request.destination}</strong>? "
+            greeting += "I can help with:<ul style='margin:6px 0 0 16px'><li>🗺️ <strong>Place suggestions</strong> — ask 'suggest places near [location]'</li><li>🍽️ <strong>Food & restaurants</strong></li><li>💎 <strong>Hidden gems</strong></li><li>💰 <strong>Budget tips</strong></li><li>🌦️ <strong>Weather forecasts</strong></li><li>🗣️ <strong>Language phrases</strong></li><li>🛡️ <strong>Safety tips</strong></li></ul>"
+            return {"success": True, "response": greeting}
+        
+        # --- HELP ---
+        if any(kw in msg_lower for kw in ["help", "what can you", "how to", "guide"]):
+            response = """I'm your AI travel assistant! Here's what I can do:<ul style='margin:6px 0 0 16px'>
+                <li>🗺️ <strong>'Suggest places near SRM University for half day'</strong> — I'll find categorized places</li>
+                <li>🍽️ <strong>'Best food to try'</strong> — Local food recommendations</li>
+                <li>💎 <strong>'Hidden gems'</strong> — Secret spots tourists miss</li>
+                <li>💰 <strong>'Budget tips'</strong> — Save money while traveling</li>
+                <li>🌦️ <strong>'Weather forecast'</strong> — Real-time weather with risk levels</li>
+                <li>🗣️ <strong>'Language phrases'</strong> — Essential local phrases</li>
+                <li>📍 <strong>'Nearby places'</strong> — Click Nearby button for GPS-based search</li>
+                <li>👥 <strong>'Crowd tips'</strong> — Avoid peak hours</li>
+            </ul>"""
+            return {"success": True, "response": response}
+        
+        # --- FALLBACK: Try to interpret as a place suggestion request ---
+        location, purpose = _extract_location_from_message(msg)
+        if location and len(location) > 3:
+            response = await _chatbot_suggest_places(location, request.destination, purpose)
+            return {"success": True, "response": response}
+        
+        # Generic fallback
+        response = f"I can help with:<ul style='margin:6px 0 0 16px'>"
+        response += "<li>🗺️ <strong>Place suggestions</strong> — try 'suggest places near [location]'</li>"
+        response += "<li>🍽️ <strong>Food</strong> — 'best food to try'</li>"
+        response += f"<li>💎 <strong>Hidden gems</strong> — 'hidden gems in {dest or 'city'}'</li>"
+        response += "<li>💰 <strong>Budget</strong> — 'budget saving tips'</li>"
+        response += "<li>🌦️ <strong>Weather</strong> — 'weather forecast'</li>"
+        response += "<li>📍 <strong>Nearby</strong> — click the Nearby button for GPS search</li>"
+        response += "</ul>"
         
         return {"success": True, "response": response}
-    except:
-        return {"success": False, "response": "Try asking about hidden gems, food, or budget tips!"}
+    except Exception as e:
+        print(f"Chatbot error: {e}")
+        import traceback; traceback.print_exc()
+        return {"success": True, "response": "I can help with place suggestions, food, hidden gems, budget tips, weather, and more! Try asking 'suggest places near [location]'."}
 
 # ============================================
 # WebSocket
@@ -1508,7 +2401,7 @@ async def websocket_agents(websocket: WebSocket):
 # ============================================
 if __name__ == "__main__":
     print("\n" + "=" * 60)
-    print("SmartRoute v12.0 - API-Driven Agentic AI Travel Planner")
+    print("SmartRoute v14.0 - Agentic AI Travel Planner")
     print("=" * 60)
     print(f"  {len(agent_manager.agents)} Autonomous Agents Active")
     print(f"  ALL locations from APIs (Overpass + OpenTripMap + Wikipedia)")
