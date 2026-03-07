@@ -4,14 +4,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SmartRoute v12.0 — API-Driven AI Travel Planner</title>
+    <title>SmartRoute v14.0 — Agentic AI Travel Planner</title>
     <meta name="description"
         content="Multi-Agent Autonomous Travel Intelligence System with 7 specialized AI agents, MDP/RL, Bayesian inference, and beautiful modern UI.">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap"
         rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.5.0/css/all.min.css">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <link rel="stylesheet" href="css/app.css?v=12">
+    <link rel="stylesheet" href="css/app.css?v=14">
+    <link rel="stylesheet" href="css/agentic-booking.css?v=14">
 </head>
 
 <body>
@@ -21,12 +22,13 @@
         <div class="header-inner">
             <div class="logo">
                 <div class="logo-icon">🤖</div>
-                <span>SmartRoute v12.0</span>
+                <span>SmartRoute v14.0</span>
                 <span class="badge">Agentic AI</span>
             </div>
             <div class="header-actions">
                 <button class="btn btn-accent" onclick="emergencyReplan()"><i class="fas fa-bolt"></i> Emergency Replan</button>
                 <button class="btn" style="background:rgba(6,182,212,0.15);color:#06b6d4" onclick="findNearbyPlaces()" title="Find places near your current location"><i class="fas fa-map-pin"></i> 📍 Nearby</button>
+                <button class="btn-icon" onclick="toggleHistory()" title="Booking History"><i class="fas fa-history"></i></button>
                 <button class="btn-icon" onclick="exportPDF()" title="Export PDF"><i
                         class="fas fa-file-pdf"></i></button>
                 <button class="btn-icon" onclick="shareTrip()" title="Share Trip"><i
@@ -161,6 +163,133 @@
                 </div>
             </div>
 
+            <!-- ====== AGENTIC BOOKING WIZARD ====== -->
+            <div class="agentic-wizard" id="agenticWizard" style="display:none">
+                <!-- Workflow Progress Bar -->
+                <div class="wizard-progress" id="wizardProgress">
+                    <div class="wizard-step completed" data-step="trip_planned"><span class="step-icon">🗺️</span><span class="step-label">Trip Planned</span></div>
+                    <div class="wizard-connector"></div>
+                    <div class="wizard-step" data-step="choose_flights"><span class="step-icon">✈️</span><span class="step-label">Flights</span></div>
+                    <div class="wizard-connector"></div>
+                    <div class="wizard-step" data-step="choose_hotels"><span class="step-icon">🏨</span><span class="step-label">Hotels</span></div>
+                    <div class="wizard-connector"></div>
+                    <div class="wizard-step" data-step="choose_cabs"><span class="step-icon">🚗</span><span class="step-label">Transport</span></div>
+                    <div class="wizard-connector"></div>
+                    <div class="wizard-step" data-step="review_cart"><span class="step-icon">🛒</span><span class="step-label">Review</span></div>
+                    <div class="wizard-connector"></div>
+                    <div class="wizard-step" data-step="payment"><span class="step-icon">💳</span><span class="step-label">Payment</span></div>
+                    <div class="wizard-connector"></div>
+                    <div class="wizard-step" data-step="confirmed"><span class="step-icon">✅</span><span class="step-label">Confirmed</span></div>
+                </div>
+
+                <!-- Agent Prompt Banner -->
+                <div class="agent-prompt-banner" id="agentPromptBanner">
+                    <div class="agent-prompt-avatar">🤖</div>
+                    <div class="agent-prompt-text" id="agentPromptText">
+                        Your trip itinerary is ready! Let me help you book flights, hotels, and local transport.
+                    </div>
+                    <div class="agent-prompt-actions" id="agentPromptActions">
+                        <button class="btn btn-primary btn-sm" onclick="agenticSearchFlights()"><i class="fas fa-plane"></i> Search Flights</button>
+                        <button class="btn btn-sm" style="background:rgba(16,185,129,0.15);color:#10b981" onclick="agenticSearchHotels()"><i class="fas fa-hotel"></i> Search Hotels</button>
+                        <button class="btn btn-sm" style="background:rgba(245,158,11,0.15);color:#f59e0b" onclick="agenticSearchCabs()"><i class="fas fa-car"></i> Search Cabs</button>
+                        <button class="btn btn-sm" style="background:rgba(139,92,246,0.15);color:#8b5cf6" onclick="agenticSkipToReview()"><i class="fas fa-forward"></i> Skip to Review</button>
+                    </div>
+                </div>
+
+                <!-- Flight Results Panel -->
+                <div class="wizard-panel" id="flightResultsPanel" style="display:none">
+                    <div class="panel-title"><i class="fas fa-plane"></i> ✈️ Flight Options — Agent Found</div>
+                    <div class="wizard-panel-controls">
+                        <select id="flightSort" onchange="sortFlightResults(this.value)">
+                            <option value="price">Sort: Price (Low to High)</option>
+                            <option value="duration">Sort: Duration</option>
+                            <option value="rating">Sort: Rating</option>
+                        </select>
+                    </div>
+                    <div id="flightResultsList" class="booking-results-grid"></div>
+                </div>
+
+                <!-- Hotel Results Panel -->
+                <div class="wizard-panel" id="hotelResultsPanel" style="display:none">
+                    <div class="panel-title"><i class="fas fa-hotel"></i> 🏨 Hotel Options — Agent Found</div>
+                    <div class="wizard-panel-controls">
+                        <select id="hotelSort" onchange="sortHotelResults(this.value)">
+                            <option value="price">Sort: Price (Low to High)</option>
+                            <option value="rating">Sort: Rating</option>
+                            <option value="stars">Sort: Stars</option>
+                        </select>
+                    </div>
+                    <div id="hotelResultsList" class="booking-results-grid"></div>
+                </div>
+
+                <!-- Cab Results Panel -->
+                <div class="wizard-panel" id="cabResultsPanel" style="display:none">
+                    <div class="panel-title"><i class="fas fa-car"></i> 🚗 Local Transport — Agent Found</div>
+                    <div id="cabResultsList" class="booking-results-grid"></div>
+                </div>
+
+                <!-- Review Cart Panel -->
+                <div class="wizard-panel" id="reviewCartPanel" style="display:none">
+                    <div class="panel-title"><i class="fas fa-shopping-cart"></i> 🛒 Review Your Bookings</div>
+                    <div id="cartSummary" class="cart-summary"></div>
+                    <div class="cart-total" id="cartTotal"></div>
+                    <div style="display:flex;gap:8px;margin-top:12px">
+                        <button class="btn btn-primary" onclick="agenticProceedToPayment()" style="flex:1"><i class="fas fa-credit-card"></i> Proceed to Payment</button>
+                        <button class="btn" onclick="agenticEditSelections()" style="background:rgba(245,158,11,0.15);color:#f59e0b"><i class="fas fa-edit"></i> Edit</button>
+                    </div>
+                </div>
+
+                <!-- Payment Panel -->
+                <div class="wizard-panel" id="paymentPanel" style="display:none">
+                    <div class="panel-title"><i class="fas fa-credit-card"></i> 💳 Payment</div>
+                    <div class="payment-methods" id="paymentMethods">
+                        <div class="payment-method active" data-method="card" onclick="selectPaymentMethod('card', this)">
+                            <i class="fas fa-credit-card"></i><span>Credit/Debit Card</span>
+                        </div>
+                        <div class="payment-method" data-method="upi" onclick="selectPaymentMethod('upi', this)">
+                            <i class="fas fa-mobile-alt"></i><span>UPI</span>
+                        </div>
+                        <div class="payment-method" data-method="wallet" onclick="selectPaymentMethod('wallet', this)">
+                            <i class="fas fa-wallet"></i><span>Wallet</span>
+                        </div>
+                        <div class="payment-method" data-method="net_banking" onclick="selectPaymentMethod('net_banking', this)">
+                            <i class="fas fa-university"></i><span>Net Banking</span>
+                        </div>
+                    </div>
+                    <div class="payment-form" id="paymentForm">
+                        <div class="form-group" id="cardFields">
+                            <label class="form-label">Card Number</label>
+                            <input type="text" class="form-input" id="payCardNumber" placeholder="1234 5678 9012 3456" maxlength="19">
+                            <div class="form-row" style="margin-top:8px">
+                                <div class="form-group"><label class="form-label">Expiry</label><input type="text" class="form-input" id="payExpiry" placeholder="MM/YY" maxlength="5"></div>
+                                <div class="form-group"><label class="form-label">CVV</label><input type="password" class="form-input" id="payCVV" placeholder="***" maxlength="4"></div>
+                            </div>
+                        </div>
+                        <div class="form-group" id="upiFields" style="display:none">
+                            <label class="form-label">UPI ID</label>
+                            <input type="text" class="form-input" id="payUPI" placeholder="name@upi">
+                        </div>
+                    </div>
+                    <div class="payment-summary" id="paymentSummaryTotal"></div>
+                    <button class="btn btn-accent btn-full" id="payNowBtn" onclick="agenticProcessPayment()"><i class="fas fa-lock"></i> Pay Securely</button>
+                </div>
+
+                <!-- Confirmation Panel -->
+                <div class="wizard-panel" id="confirmationPanel" style="display:none">
+                    <div class="confirmation-hero">
+                        <div class="confirmation-icon">✅</div>
+                        <h2>Trip Fully Booked!</h2>
+                        <p id="confirmationMsg">All bookings confirmed. Have an amazing trip!</p>
+                    </div>
+                    <div id="confirmationDetails" class="confirmation-details"></div>
+                    <div style="display:flex;gap:8px;margin-top:16px;justify-content:center">
+                        <button class="btn btn-primary" onclick="toggleHistory()"><i class="fas fa-history"></i> View History</button>
+                        <button class="btn" onclick="exportPDF()" style="background:rgba(6,182,212,0.15);color:#06b6d4"><i class="fas fa-file-pdf"></i> Download PDF</button>
+                    </div>
+                </div>
+            </div>
+            <!-- ====== END AGENTIC BOOKING WIZARD ====== -->
+
             <!-- Social Discovery (Instagram/YouTube Viral Places) -->
             <div class="itin-section" id="socialDiscoverySection">
                 <div class="section-title"><i class="fas fa-compass"></i> Viral & Hidden Gems Discovery</div>
@@ -184,9 +313,10 @@
                 </div>
             </div>
 
-            <!-- Nearby Places Panel -->
+            <!-- Nearby Places Panel (Categorized) -->
             <div class="panel" id="nearbyPanel" style="display:none">
-                <div class="panel-title"><i class="fas fa-map-pin"></i> 📍 Nearby Places (Live)</div>
+                <div class="panel-title"><i class="fas fa-map-pin"></i> 📍 Nearby Places — Live (Categorized)</div>
+                <div style="font-size:0.78rem;color:var(--text-2);margin-bottom:10px">Places found near your current location, sorted by quality and distance. Click a category to filter.</div>
                 <div id="nearbyContainer"></div>
             </div>
 
@@ -478,19 +608,23 @@
                 <div class="chat-msg-avatar">🤖</div>
                 <div class="chat-msg-bubble">Hi! I'm your SmartRoute AI travel assistant. I can help you with:
                     <ul style="margin:6px 0 0 16px;font-size:0.82rem">
-                        <li>Trip suggestions & recommendations</li>
-                        <li>Best time to visit places</li>
-                        <li>Budget planning tips</li>
-                        <li>Local food & culture advice</li>
-                        <li>Safety tips & travel hacks</li>
+                        <li>🗺️ <strong>Place suggestions</strong> — "suggest places near SRM University for half day"</li>
+                        <li>🍽️ Food & restaurant recommendations</li>
+                        <li>💎 Hidden gems & secret spots</li>
+                        <li>💰 Budget planning tips</li>
+                        <li>🌦️ Real-time weather forecasts</li>
+                        <li>🗣️ Local language phrases</li>
+                        <li>🛡️ Safety tips & travel hacks</li>
                     </ul>
-                    Ask me anything about your trip!
+                    Try asking: <em>"suggest places near Gateway of India for half day"</em>
                 </div>
             </div>
         </div>
         <div class="chatbot-suggestions" id="chatSuggestions">
+            <button onclick="sendSuggestion('Suggest places near my hotel for half day')">Places nearby</button>
             <button onclick="sendSuggestion('What are some hidden gems to visit?')">Hidden gems</button>
             <button onclick="sendSuggestion('Best local food to try?')">Local food</button>
+            <button onclick="sendSuggestion('What is the weather forecast?')">Weather</button>
             <button onclick="sendSuggestion('Budget saving tips?')">Budget tips</button>
             <button onclick="sendSuggestion('Safety tips for traveling?')">Safety tips</button>
         </div>
@@ -500,12 +634,29 @@
         </div>
     </div>
 
+    <!-- === BOOKING HISTORY SLIDE-OVER === -->
+    <div class="history-overlay" id="historyOverlay" onclick="toggleHistory()"></div>
+    <aside class="history-sidebar" id="historySidebar">
+        <div class="history-header">
+            <h3><i class="fas fa-history"></i> Booking History</h3>
+            <button class="btn-icon" onclick="toggleHistory()"><i class="fas fa-times"></i></button>
+        </div>
+        <div class="history-stats" id="historyStats">
+            <div class="history-stat"><span class="stat-value" id="histTotalBookings">0</span><span class="stat-label">Bookings</span></div>
+            <div class="history-stat"><span class="stat-value" id="histTotalSpent">₹0</span><span class="stat-label">Total Spent</span></div>
+        </div>
+        <div class="history-list" id="historyList">
+            <div class="empty-state"><div class="emoji">📋</div><p>No bookings yet. Complete the booking wizard to see your history here.</p></div>
+        </div>
+    </aside>
+
     <!-- === TOAST CONTAINER === -->
     <div class="toast-container" id="toastContainer"></div>
 
     <!-- === SCRIPTS === -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="js/app.js?v=12"></script>
+    <script src="js/app.js?v=14"></script>
+    <script src="js/agentic.js?v=14"></script>
 
 </body>
 

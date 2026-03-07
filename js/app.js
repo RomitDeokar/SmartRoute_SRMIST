@@ -1,7 +1,9 @@
 // ============================================
-// SmartRoute v12.0 — API-Driven Agentic AI Travel Planner
+// SmartRoute v14.0 — Agentic AI Travel Planner
 // All locations from APIs, zero duplicates, weather/crowd replan,
 // live nearby suggestions, Indian language support
+// Smart chatbot with place suggestions
+// Full agentic booking workflow (flights, hotels, cabs, payment)
 // ============================================
 
 const API_BASE = (() => {
@@ -148,7 +150,7 @@ function init() {
         setTimeout(() => generateTrip(), 500);
     }
 
-    console.log('SmartRoute v12.0 initialized — API-Driven Agentic Mode');
+    console.log('SmartRoute v14.0 initialized — Agentic AI Travel Planner');
 }
 
 // === MAP ===
@@ -1081,7 +1083,7 @@ function updateReplanFields() {
 }
 
 // ============================================
-// LIVE NEARBY PLACES
+// LIVE NEARBY PLACES (Categorized & Quality-Ranked)
 // ============================================
 async function findNearbyPlaces() {
     if (!state.itinerary) { showToast('Generate a trip first!', 'warning'); return; }
@@ -1104,17 +1106,17 @@ async function findNearbyPlaces() {
         try {
             const res = await fetch(`${API_BASE}/nearby`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ lat, lon, radius: 2000, destination: state.currentDest })
+                body: JSON.stringify({ lat, lon, radius: 10000, destination: state.currentDest })
             });
 
             if (res.ok) {
                 const data = await res.json();
                 showLoading(false);
 
-                if (data.places?.length > 0) {
-                    showNearbyPanel(data.places, lat, lon);
-                    addNearbyToMap(data.places, lat, lon);
-                    showToast(`Found ${data.places.length} places near you!`, 'success');
+                if (data.places?.length > 0 || data.categorized) {
+                    showNearbyPanel(data.places || [], data.categorized || {}, lat, lon);
+                    addNearbyToMap(data.places || [], lat, lon);
+                    showToast(`Found ${data.count || data.places?.length || 0} places near you!`, 'success');
                 } else {
                     showToast('No notable places found nearby. Try a wider area.', 'warning');
                 }
@@ -1131,30 +1133,92 @@ async function findNearbyPlaces() {
     }, { enableHighAccuracy: true, timeout: 10000 });
 }
 
-function showNearbyPanel(places, userLat, userLon) {
+function showNearbyPanel(places, categorized, userLat, userLon) {
     const container = document.getElementById('nearbyContainer');
     if (!container) return;
     document.getElementById('nearbyPanel').style.display = 'block';
 
-    container.innerHTML = places.slice(0, 10).map(p => {
-        const catIcons = { restaurant: '🍽️', cafe: '☕', museum: '🏛️', historic: '🏛️', religious: '🛕', park: '🌳', shopping: '🛍️', attraction: '📍' };
-        return `
-        <div class="nearby-card">
-            <div class="nearby-icon">${catIcons[p.category] || '📍'}</div>
-            <div class="nearby-info">
-                <div class="nearby-name">${p.name}</div>
-                <div class="nearby-meta">
-                    <span>${p.category}</span>
-                    <span>${p.distance_m}m away</span>
-                    ${p.opening_hours ? `<span>🕐 ${p.opening_hours}</span>` : ''}
-                </div>
-            </div>
-            <a href="https://www.google.com/maps/dir/?api=1&origin=${userLat},${userLon}&destination=${p.lat},${p.lon}&travelmode=walking" target="_blank" class="nearby-nav-btn"><i class="fas fa-directions"></i></a>
-        </div>`;
-    }).join('');
+    const catConfig = {
+        recreation: { icon: '🎢', label: 'Recreation & Entertainment', color: '#f59e0b' },
+        nature: { icon: '🌿', label: 'Nature & Parks', color: '#10b981' },
+        culture: { icon: '🏛️', label: 'Culture & History', color: '#8b5cf6' },
+        attractions: { icon: '📍', label: 'Must-Visit Attractions', color: '#667eea' },
+        eating: { icon: '🍽️', label: 'Food & Dining', color: '#ef4444' },
+        shopping: { icon: '🛍️', label: 'Shopping', color: '#ec4899' }
+    };
 
-    // Fetch photos
-    places.slice(0, 10).forEach(async (p, idx) => {
+    // Check if we have categorized data
+    const hasCategorized = categorized && Object.values(categorized).some(arr => arr && arr.length > 0);
+    
+    let html = '';
+    
+    if (hasCategorized) {
+        // Render category tabs
+        const activeCats = Object.entries(catConfig).filter(([key]) => categorized[key]?.length > 0);
+        
+        if (activeCats.length > 0) {
+            html += `<div class="nearby-tabs" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">`;
+            html += `<button class="nearby-tab active" onclick="filterNearbyCategory('all', this)" style="padding:6px 12px;border-radius:20px;border:1px solid var(--border);background:var(--primary);color:#fff;font-size:0.78rem;cursor:pointer">📍 All</button>`;
+            activeCats.forEach(([key, cfg]) => {
+                html += `<button class="nearby-tab" onclick="filterNearbyCategory('${key}', this)" style="padding:6px 12px;border-radius:20px;border:1px solid ${cfg.color}44;background:${cfg.color}15;color:${cfg.color};font-size:0.78rem;cursor:pointer">${cfg.icon} ${cfg.label} (${categorized[key].length})</button>`;
+            });
+            html += `</div>`;
+            
+            // Render categorized sections
+            activeCats.forEach(([key, cfg]) => {
+                html += `<div class="nearby-category" data-category="${key}" style="margin-bottom:16px">`;
+                html += `<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><span style="font-size:1.2rem">${cfg.icon}</span><span style="font-weight:700;color:${cfg.color}">${cfg.label}</span><span style="font-size:0.75rem;color:var(--text-2)">${categorized[key].length} found</span></div>`;
+                
+                categorized[key].forEach(p => {
+                    const distStr = p.distance_m < 1000 ? `${p.distance_m}m` : `${(p.distance_m / 1000).toFixed(1)}km`;
+                    const qualityStars = '⭐'.repeat(Math.min(5, Math.max(1, Math.round(p.quality_score || 2))));
+                    html += `
+                    <div class="nearby-card" data-category="${key}" style="display:flex;align-items:center;gap:12px;padding:10px;border-radius:10px;background:var(--bg-3);margin-bottom:6px;border-left:3px solid ${cfg.color}">
+                        <div class="nearby-icon" style="width:42px;height:42px;border-radius:8px;background:${cfg.color}15;display:flex;align-items:center;justify-content:center;font-size:1.3rem;flex-shrink:0">${cfg.icon}</div>
+                        <div class="nearby-info" style="flex:1;min-width:0">
+                            <div class="nearby-name" style="font-weight:600;font-size:0.88rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${p.name}</div>
+                            <div class="nearby-meta" style="display:flex;gap:8px;font-size:0.75rem;color:var(--text-2);flex-wrap:wrap;margin-top:2px">
+                                <span style="color:${cfg.color}">${p.subcategory || p.category}</span>
+                                <span>📏 ${distStr}</span>
+                                ${p.quality_score ? `<span>${qualityStars}</span>` : ''}
+                                ${p.opening_hours ? `<span>🕐 ${p.opening_hours}</span>` : ''}
+                            </div>
+                            ${p.website ? `<a href="${p.website}" target="_blank" style="font-size:0.72rem;color:var(--primary)">🔗 Website</a>` : ''}
+                        </div>
+                        <a href="https://www.google.com/maps/dir/?api=1&origin=${userLat},${userLon}&destination=${p.lat},${p.lon}&travelmode=walking" target="_blank" class="nearby-nav-btn" style="width:36px;height:36px;border-radius:50%;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;text-decoration:none;flex-shrink:0"><i class="fas fa-directions"></i></a>
+                    </div>`;
+                });
+                html += `</div>`;
+            });
+        }
+    }
+    
+    if (!html) {
+        // Fallback to flat list
+        html = places.slice(0, 15).map(p => {
+            const catIcons = { restaurant: '🍽️', cafe: '☕', museum: '🏛️', historic: '🏛️', religious: '🛕', park: '🌳', shopping: '🛍️', attraction: '📍', eating: '🍽️', recreation: '🎢', nature: '🌿', culture: '🏛️' };
+            const distStr = p.distance_m < 1000 ? `${p.distance_m}m` : `${(p.distance_m / 1000).toFixed(1)}km`;
+            return `
+            <div class="nearby-card" style="display:flex;align-items:center;gap:12px;padding:10px;border-radius:10px;background:var(--bg-3);margin-bottom:6px">
+                <div class="nearby-icon" style="width:36px;height:36px;border-radius:8px;background:var(--bg-4);display:flex;align-items:center;justify-content:center;font-size:1.2rem">${catIcons[p.category] || '📍'}</div>
+                <div class="nearby-info" style="flex:1;min-width:0">
+                    <div class="nearby-name" style="font-weight:600;font-size:0.88rem">${p.name}</div>
+                    <div class="nearby-meta" style="display:flex;gap:8px;font-size:0.75rem;color:var(--text-2)">
+                        <span>${p.category}</span>
+                        <span>📏 ${distStr}</span>
+                        ${p.opening_hours ? `<span>🕐 ${p.opening_hours}</span>` : ''}
+                    </div>
+                </div>
+                <a href="https://www.google.com/maps/dir/?api=1&origin=${userLat},${userLon}&destination=${p.lat},${p.lon}&travelmode=walking" target="_blank" class="nearby-nav-btn" style="width:36px;height:36px;border-radius:50%;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;text-decoration:none"><i class="fas fa-directions"></i></a>
+            </div>`;
+        }).join('');
+    }
+
+    container.innerHTML = html;
+
+    // Fetch photos for nearby cards
+    const allPlaces = places.slice(0, 15);
+    allPlaces.forEach(async (p, idx) => {
         if (p.photo) {
             const cards = container.querySelectorAll('.nearby-card');
             if (cards[idx]) {
@@ -1163,12 +1227,35 @@ function showNearbyPanel(places, userLat, userLon) {
                     iconEl.style.backgroundImage = `url('${p.photo}')`;
                     iconEl.style.backgroundSize = 'cover';
                     iconEl.style.backgroundPosition = 'center';
-                    iconEl.style.borderRadius = '8px';
                     iconEl.textContent = '';
                 }
             }
         }
     });
+}
+
+function filterNearbyCategory(category, btn) {
+    // Update tab styles
+    document.querySelectorAll('.nearby-tab').forEach(t => {
+        t.classList.remove('active');
+        t.style.background = t.style.background.replace('var(--primary)', '');
+        t.style.color = '';
+    });
+    if (btn) {
+        btn.classList.add('active');
+    }
+    
+    // Filter cards
+    const categories = document.querySelectorAll('.nearby-category');
+    const cards = document.querySelectorAll('.nearby-card[data-category]');
+    
+    if (category === 'all') {
+        categories.forEach(c => c.style.display = 'block');
+    } else {
+        categories.forEach(c => {
+            c.style.display = c.dataset.category === category ? 'block' : 'none';
+        });
+    }
 }
 
 function addNearbyToMap(places, userLat, userLon) {
