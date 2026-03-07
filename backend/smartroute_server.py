@@ -410,20 +410,85 @@ async def geocode_city(city: str) -> Optional[Dict]:
         print(f"⚠️ Geocoding failed for {city}: {e}")
     return None
 
-async def fetch_pexels_photo(query: str, count: int = 3) -> list:
-    """Fetch photo URLs from Pexels for a place name"""
-    fallback = ["https://images.pexels.com/photos/460672/pexels-photo-460672.jpeg"]
+async def fetch_wikimedia_photos(query: str, count: int = 3) -> list:
+    """Fetch real photos from Wikimedia Commons (free, no API key)"""
+    try:
+        async with httpx.AsyncClient(timeout=8) as client:
+            # Search Wikimedia Commons for images of this place
+            resp = await client.get("https://commons.wikimedia.org/w/api.php", params={
+                "action": "query",
+                "format": "json",
+                "generator": "images",
+                "titles": query,
+                "gimlimit": str(count),
+                "prop": "imageinfo",
+                "iiprop": "url|mime",
+                "iiurlwidth": "800"
+            })
+            data = resp.json()
+            pages = data.get("query", {}).get("pages", {})
+            photos = []
+            for page in pages.values():
+                info = page.get("imageinfo", [{}])[0]
+                mime = info.get("mime", "")
+                if "image" in mime and "svg" not in mime:
+                    url = info.get("thumburl") or info.get("url", "")
+                    if url:
+                        photos.append(url)
+            if photos:
+                return photos[:count]
+    except:
+        pass
+    
+    # Fallback: search Wikimedia using opensearch
+    try:
+        async with httpx.AsyncClient(timeout=8) as client:
+            resp = await client.get("https://en.wikipedia.org/w/api.php", params={
+                "action": "query",
+                "format": "json",
+                "titles": query,
+                "prop": "pageimages",
+                "piprop": "original|thumbnail",
+                "pithumbsize": "800"
+            })
+            data = resp.json()
+            pages = data.get("query", {}).get("pages", {})
+            for page in pages.values():
+                thumb = page.get("thumbnail", {}).get("source")
+                original = page.get("original", {}).get("source")
+                url = thumb or original
+                if url:
+                    return [url]
+    except:
+        pass
+    return []
+
+async def fetch_place_photos(query: str, city: str = "", count: int = 3) -> list:
+    """Get real photos: tries Wikimedia first, then Pexels as fallback"""
+    # Try Wikimedia Commons with place name
+    photos = await fetch_wikimedia_photos(query, count)
+    if photos:
+        return photos
+    
+    # Try Wikipedia with place + city
+    if city:
+        photos = await fetch_wikimedia_photos(f"{query} {city}", count)
+        if photos:
+            return photos
+    
+    # Fallback to Pexels with specific query
+    fallback = [f"https://source.unsplash.com/800x600/?{query.replace(' ', '+')},{city.replace(' ', '+')}"]
     if not PEXELS_API_KEY:
         return fallback
     try:
         async with httpx.AsyncClient(timeout=5) as client:
             resp = await client.get("https://api.pexels.com/v1/search", params={
-                "query": query, "per_page": count, "orientation": "landscape"
+                "query": f"{query} {city} place landmark", "per_page": count, "orientation": "landscape"
             }, headers={"Authorization": PEXELS_API_KEY})
             data = resp.json()
-            photos = data.get("photos", [])
-            if photos:
-                return [p["src"]["large"] for p in photos]
+            pexels_photos = data.get("photos", [])
+            if pexels_photos:
+                return [p["src"]["large"] for p in pexels_photos]
     except:
         pass
     return fallback
@@ -517,7 +582,7 @@ async def get_dynamic_attractions(city: str) -> List[Dict]:
             # Fetch photos for top attractions (limit to avoid rate limiting)
             for attr in attractions[:8]:
                 if not attr["photos"]:
-                    attr["photos"] = await fetch_pexels_photo(f"{attr['name']} {city} tourism", count=3)
+                    attr["photos"] = await fetch_place_photos(attr['name'], city, count=3)
                     attr["photo"] = attr["photos"][0] if attr["photos"] else ""
             # Fill remaining with generic photo
             for attr in attractions[8:]:
@@ -548,8 +613,9 @@ async def find_nearby_quick_attractions(lat: float, lon: float, max_count: int =
     attractions = await fetch_overpass_attractions(lat, lon, radius=5000, limit=max_count)
     # Fetch photos
     for attr in attractions:
-        if not attr["photo"]:
-            attr["photo"] = await fetch_pexels_photo(attr["name"])
+        if not attr.get("photos"):
+            attr["photos"] = await fetch_place_photos(attr["name"], "", count=1)
+            attr["photo"] = attr["photos"][0] if attr["photos"] else ""
         # Force shorter durations for quick visits
         attr["duration"] = random.choice(["30 min", "45 min", "1 hour", "1-2 hours"])
     return attractions

@@ -520,7 +520,7 @@ function processTrip(data, dest, duration, budget) {
     state.itinerary = data.itinerary || data;
     renderItinerary(state.itinerary, dest);
     updateMap(state.itinerary);
-    renderBookings(data.bookings || generateBookings(dest), dest);
+    renderBookings(generateBookings(dest), dest);
     renderLanguageTips(dest);
     renderWeather(dest, duration);
     updateBudgetDisplay(state.itinerary, budget);
@@ -702,27 +702,38 @@ async function generateSimulatedItinerary(dest, duration, budget, startDate) {
 
 // === BOOKINGS ===
 function generateBookings(dest) {
-    const encodedDest = encodeURIComponent(dest);
+    const e = encodeURIComponent(dest);
+    const slug = dest.toLowerCase().replace(/\s+/g, '-');
     return {
         hotels: [
-            { name: `Hotels in ${dest} — Booking.com`, rating: 4.5, price_per_night: 8000, amenities: ['WiFi', 'Breakfast', 'Pool', 'Gym'], photo: 'https://images.pexels.com/photos/258154/pexels-photo-258154.jpeg', booking_url: `https://www.booking.com/searchresults.html?ss=${encodedDest}` },
-            { name: `${dest} Hotels — MakeMyTrip`, rating: 4.0, price_per_night: 3000, amenities: ['WiFi', 'AC'], photo: 'https://images.pexels.com/photos/271624/pexels-photo-271624.jpeg', booking_url: `https://www.makemytrip.com/hotels/hotel-listing/?checkin=&checkout=&city=${encodedDest}&country=IN` },
-            { name: `${dest} Stays — Agoda`, rating: 4.8, price_per_night: 15000, amenities: ['WiFi', 'Breakfast', 'Pool', 'Spa', 'Restaurant'], photo: 'https://images.pexels.com/photos/189296/pexels-photo-189296.jpeg', booking_url: `https://www.agoda.com/search?city=${encodedDest}` }
+            { name: `Google Hotels — ${dest}`, rating: 4.7, price_per_night: 'Compare', amenities: ['All Hotels', 'Price Compare', 'Reviews'], photo: `https://source.unsplash.com/800x600/?${e},hotel`, booking_url: `https://www.google.com/travel/hotels/${e}` },
+            { name: `Booking.com — ${dest}`, rating: 4.5, price_per_night: 'Browse', amenities: ['WiFi', 'Breakfast', 'Free Cancel'], photo: `https://source.unsplash.com/800x600/?${e},resort`, booking_url: `https://www.booking.com/searchresults.html?ss=${e}` },
+            { name: `MakeMyTrip Hotels`, rating: 4.3, price_per_night: 'Browse', amenities: ['Best Deals', 'EMI'], photo: `https://source.unsplash.com/800x600/?${e},accommodation`, booking_url: `https://www.makemytrip.com/hotels/hotel-listing/?city=${e}&country=IN` },
+            { name: `Agoda Deals — ${dest}`, rating: 4.4, price_per_night: 'Browse', amenities: ['Last Minute', 'Secret Deals'], photo: `https://source.unsplash.com/800x600/?${e},luxury+hotel`, booking_url: `https://www.agoda.com/search?city=${e}` },
+            { name: `Trivago — Compare All`, rating: 4.6, price_per_night: 'Compare', amenities: ['250+ Sites', 'Best Price'], photo: `https://source.unsplash.com/800x600/?${e},room`, booking_url: `https://www.trivago.in/?search=${e}` },
+            { name: `Goibibo Hotels`, rating: 4.2, price_per_night: 'Browse', amenities: ['goCash', 'Free Cancel'], photo: `https://source.unsplash.com/800x600/?${e},bedroom`, booking_url: `https://www.goibibo.com/hotels/hotels-in-${slug}/` },
+            { name: `Hostelworld — Budget`, rating: 4.0, price_per_night: 'Budget', amenities: ['Hostels', 'Backpacker'], photo: `https://source.unsplash.com/800x600/?hostel,backpacker`, booking_url: `https://www.hostelworld.com/st/hostels/${e}/` }
         ],
         flights: [
-            { airline: 'Air India', price: 8500, departure: '06:00', arrival: '08:30', duration: '2h 30m', booking_url: `https://www.google.com/travel/flights?q=flights+to+${encodedDest}` },
-            { airline: 'IndiGo', price: 6500, departure: '10:00', arrival: '12:45', duration: '2h 45m', booking_url: `https://www.makemytrip.com/flights/results?city=${encodedDest}` },
-            { airline: 'SpiceJet', price: 7000, departure: '15:00', arrival: '17:20', duration: '2h 20m', booking_url: `https://www.skyscanner.co.in/transport/flights-to/${encodedDest}` }
+            { airline: 'Google Flights — Compare All', price: 'Compare', departure: 'All Times', arrival: 'All Airlines', duration: 'Best Price', booking_url: `https://www.google.com/travel/flights?q=flights+to+${e}` },
+            { airline: 'Skyscanner — Cheapest', price: 'Compare', departure: 'Flexible', arrival: 'Multi-airline', duration: 'Cheapest', booking_url: `https://www.skyscanner.co.in/transport/flights-to/${e}` },
+            { airline: 'MakeMyTrip Flights', price: 'Browse', departure: 'All', arrival: 'All', duration: 'Deals', booking_url: `https://www.makemytrip.com/flights/results?city=${e}` },
+            { airline: 'Ixigo — Budget Flights', price: 'Compare', departure: 'Budget', arrival: 'All', duration: 'Min Price', booking_url: `https://www.ixigo.com/search/result/flight?to=${e}` },
+            { airline: 'Kayak — All Airlines', price: 'Compare', departure: 'All', arrival: 'All', duration: 'All Options', booking_url: `https://www.kayak.co.in/flights?to=${e}` }
         ],
         restaurants: [
-            { name: `Restaurants in ${dest} — Zomato`, rating: 4.6, price_range: '₹₹', cuisine: 'Local', photo: 'https://images.pexels.com/photos/1099680/pexels-photo-1099680.jpeg', booking_url: `https://www.zomato.com/${dest.toLowerCase().replace(/\s+/g, '-')}/restaurants` },
-            { name: `Fine Dining in ${dest} — Google`, rating: 4.8, price_range: '₹₹₹₹', cuisine: 'International', photo: 'https://images.pexels.com/photos/262978/pexels-photo-262978.jpeg', booking_url: `https://www.google.com/search?q=best+fine+dining+restaurants+in+${encodedDest}` },
-            { name: `Street Food in ${dest}`, rating: 4.4, price_range: '₹', cuisine: 'Street Food', photo: 'https://images.pexels.com/photos/1640775/pexels-photo-1640775.jpeg', booking_url: `https://www.google.com/search?q=best+street+food+in+${encodedDest}` }
+            { name: `Zomato — Best in ${dest}`, rating: 4.6, price_range: '₹-₹₹₹₹', cuisine: 'All Cuisines', photo: `https://source.unsplash.com/800x600/?${e},restaurant,food`, booking_url: `https://www.zomato.com/${slug}/restaurants` },
+            { name: `Google — Top Rated`, rating: 4.8, price_range: '₹₹₹', cuisine: 'Fine Dining', photo: `https://source.unsplash.com/800x600/?fine+dining,${e}`, booking_url: `https://www.google.com/search?q=best+restaurants+in+${e}` },
+            { name: `Swiggy Dineout — ${dest}`, rating: 4.4, price_range: '₹₹', cuisine: 'All', photo: `https://source.unsplash.com/800x600/?indian+food,${e}`, booking_url: `https://www.swiggy.com/dineout/restaurants-near-me` },
+            { name: `TripAdvisor Dining`, rating: 4.5, price_range: '₹₹-₹₹₹₹', cuisine: 'Traveller Picks', photo: `https://source.unsplash.com/800x600/?food,cuisine`, booking_url: `https://www.tripadvisor.in/Restaurants-g${e}` },
+            { name: `Street Food in ${dest}`, rating: 4.4, price_range: '₹', cuisine: 'Street Food', photo: `https://source.unsplash.com/800x600/?street+food,${e}`, booking_url: `https://www.google.com/search?q=best+street+food+in+${e}` }
         ],
         cabs: [
-            { type: 'Uber', price: '₹150-500/ride', features: ['AC', 'GPS Tracking', 'Cashless'], rating: 4.3, booking_url: `https://m.uber.com/looking` },
+            { type: 'Uber', price: '₹150-500/ride', features: ['AC', 'GPS', 'Cashless'], rating: 4.3, booking_url: `https://m.uber.com/looking` },
             { type: 'Ola Cabs', price: '₹100-400/ride', features: ['AC', 'GPS', 'Multiple Options'], rating: 4.1, booking_url: `https://www.olacabs.com/` },
-            { type: 'Car Rental — Zoomcar', price: '₹2,000-5,000/day', features: ['Self-drive', 'Insurance', 'GPS'], rating: 4.5, booking_url: `https://www.zoomcar.com/in/${dest.toLowerCase().replace(/\s+/g, '-')}` }
+            { type: 'Zoomcar — Self Drive', price: '₹2,000-5,000/day', features: ['Self-drive', 'Insurance', 'GPS'], rating: 4.5, booking_url: `https://www.zoomcar.com/in/${slug}` },
+            { type: 'Savaari — Outstation', price: '₹12-18/km', features: ['Outstation', 'Driver', 'AC'], rating: 4.2, booking_url: `https://www.savaari.com/cab-to-${slug}` },
+            { type: 'Google — Local Taxis', price: 'Varies', features: ['Compare All', 'Local Options'], rating: 4.0, booking_url: `https://www.google.com/search?q=taxi+rental+in+${e}` }
         ]
     };
 }
@@ -793,10 +804,10 @@ function renderBookings(bookings, dest) {
 
     let html = `
     <div class="tabs" id="bookingTabs">
-      <button class="tab active" onclick="switchBookingTab('hotels')">🏨 Hotels</button>
-      <button class="tab" onclick="switchBookingTab('flights')">✈️ Flights</button>
-      <button class="tab" onclick="switchBookingTab('cabs')">🚗 Cab Rentals</button>
-      <button class="tab" onclick="switchBookingTab('restaurants')">🍽️ Restaurants</button>
+      <button class="tab active" onclick="switchBookingTab('hotels',this)">🏨 Hotels</button>
+      <button class="tab" onclick="switchBookingTab('flights',this)">✈️ Flights</button>
+      <button class="tab" onclick="switchBookingTab('cabs',this)">🚗 Cab Rentals</button>
+      <button class="tab" onclick="switchBookingTab('restaurants',this)">🍽️ Restaurants</button>
     </div>
   `;
 
@@ -812,7 +823,7 @@ function renderBookings(bookings, dest) {
     </div>`;
 
     // Flights
-    html += `<div class="tab-content" id="tab-flights">
+    html += `<div class="tab-content" id="tab-flights" style="display:none">
       <div class="sort-controls">
         <button class="sort-btn active" onclick="sortBookings('flights','price-asc',this)">💰 Price ↑</button>
         <button class="sort-btn" onclick="sortBookings('flights','price-desc',this)">💰 Price ↓</button>
@@ -821,7 +832,7 @@ function renderBookings(bookings, dest) {
     </div>`;
 
     // Cabs
-    html += `<div class="tab-content" id="tab-cabs">
+    html += `<div class="tab-content" id="tab-cabs" style="display:none">
       <div class="sort-controls">
         <button class="sort-btn active" onclick="sortBookings('cabs','rating-desc',this)">⭐ Rating ↓</button>
         <button class="sort-btn" onclick="sortBookings('cabs','rating-asc',this)">⭐ Rating ↑</button>
@@ -830,7 +841,7 @@ function renderBookings(bookings, dest) {
     </div>`;
 
     // Restaurants
-    html += `<div class="tab-content" id="tab-restaurants">
+    html += `<div class="tab-content" id="tab-restaurants" style="display:none">
       <div class="sort-controls">
         <button class="sort-btn active" onclick="sortBookings('restaurants','rating-desc',this)">⭐ Rating ↓</button>
         <button class="sort-btn" onclick="sortBookings('restaurants','rating-asc',this)">⭐ Rating ↑</button>
@@ -842,17 +853,20 @@ function renderBookings(bookings, dest) {
 }
 
 function renderHotelCards(hotels, dest) {
-    return (hotels || []).map(h => `
+    return (hotels || []).map(h => {
+        const priceText = typeof h.price_per_night === 'number' ? `₹${h.price_per_night.toLocaleString()}/night` : h.price_per_night;
+        return `
     <div class="booking-card">
       <img src="${h.photo}" alt="${h.name}" onerror="this.src='https://images.pexels.com/photos/258154/pexels-photo-258154.jpeg'" loading="lazy">
       <div class="booking-card-body">
         <div class="booking-card-title">${h.name}</div>
         <div class="booking-card-rating">⭐ ${h.rating}/5</div>
-        <div class="booking-card-price">₹${h.price_per_night?.toLocaleString()}/night</div>
+        <div class="booking-card-price">${priceText}</div>
         <div class="booking-card-amenities">${(h.amenities || []).map(a => `<span class="amenity-tag">${a}</span>`).join('')}</div>
-        <a href="${h.booking_url || '#'}" target="_blank" class="btn btn-primary" style="text-decoration:none">Book Now</a>
+        <a href="${h.booking_url || '#'}" target="_blank" class="btn btn-primary" style="text-decoration:none">🔗 Visit Site</a>
       </div>
-    </div>`).join('');
+    </div>`;
+    }).join('');
 }
 
 function renderFlightCards(flights, dest) {
@@ -921,11 +935,18 @@ function sortBookings(tab, sortKey, btn) {
     else if (tab === 'restaurants') grid.innerHTML = renderRestaurantCards(data, _currentDest);
 }
 
-function switchBookingTab(tab) {
+function switchBookingTab(tab, btn) {
     document.querySelectorAll('#bookingsContainer .tab').forEach(t => t.classList.remove('active'));
-    document.querySelectorAll('#bookingsContainer .tab-content').forEach(t => t.classList.remove('active'));
-    event.target.classList.add('active');
-    document.getElementById(`tab-${tab}`)?.classList.add('active');
+    document.querySelectorAll('#bookingsContainer .tab-content').forEach(t => {
+        t.style.display = 'none';
+        t.classList.remove('active');
+    });
+    if (btn) btn.classList.add('active');
+    const tabEl = document.getElementById(`tab-${tab}`);
+    if (tabEl) {
+        tabEl.style.display = 'block';
+        tabEl.classList.add('active');
+    }
 }
 
 // === LANGUAGE TIPS ===
