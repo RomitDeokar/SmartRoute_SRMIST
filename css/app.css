@@ -2860,3 +2860,211 @@ a {
     border-radius: var(--radius);
     height: 280px;
 }
+
+/* ============================================
+   NEW: Instagram Reel Cards
+   ============================================ */
+.reel-card .reel-img {
+    height: 200px;
+    background: linear-gradient(135deg, #405de6, #833ab4, #e1306c, #fd1d1d, #f56040);
+    position: relative;
+    overflow: hidden;
+    border-radius: var(--radius) var(--radius) 0 0;
+}
+
+.reel-card .reel-gradient {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(to top, rgba(0,0,0,0.7) 0%, transparent 60%);
+    z-index: 1;
+}
+
+.reel-location-badge {
+    position: absolute;
+    bottom: 10px;
+    left: 10px;
+    background: rgba(0,0,0,0.6);
+    backdrop-filter: blur(8px);
+    color: #fff;
+    padding: 4px 10px;
+    border-radius: var(--radius-full);
+    font-size: 0.7rem;
+    font-weight: 600;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.reel-location-badge i { color: #e1306c; }
+
+.reel-views {
+    position: absolute;
+    bottom: 10px;
+    right: 10px;
+    background: rgba(0,0,0,0.6);
+    backdrop-filter: blur(8px);
+    color: #fff;
+    padding: 4px 10px;
+    border-radius: var(--radius-full);
+    font-size: 0.68rem;
+    font-weight: 600;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.reel-type-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: var(--radius-full);
+    font-size: 0.62rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 6px;
+    background: rgba(102,126,234,0.15);
+    color: var(--primary);
+}
+.reel-type-badge.photo_spot { background: rgba(225,48,108,0.15); color: #e1306c; }
+.reel-type-badge.art { background: rgba(131,58,180,0.15); color: #833ab4; }
+.reel-type-badge.vibe { background: rgba(79,172,254,0.15); color: #4facfe; }
+.reel-type-badge.adventure { background: rgba(16,185,129,0.15); color: #10b981; }
+.reel-type-badge.nightlife { background: rgba(118,75,162,0.15); color: #764ba2; }
+.reel-type-badge.experience { background: rgba(245,158,11,0.15); color: #f59e0b; }
+.reel-type-badge.cultural { background: rgba(245,87,11,0.15); color: #f57b0b; }
+.reel-type-badge.neighborhood { background: rgba(6,182,212,0.15); color: #06b6d4; }
+.reel-type-badge.architecture { background: rgba(249,115,22,0.15); color: #f97316; }
+.reel-type-badge.viewpoint { background: rgba(236,72,153,0.15); color: #ec4899; }
+.reel-type-badge.scenic { background: rgba(34,197,94,0.15); color: #22c55e; }
+.reel-type-badge.heritage { background: rgba(217,119,6,0.15); color: #d97706; }
+
+.reel-info-row {
+    display: flex;
+    gap: 12px;
+    font-size: 0.72rem;
+    color: var(--text-2);
+    margin: 6px 0;
+}
+.reel-info-row i { color: var(--accent); margin-right: 3px; }
+
+.reel-actions {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-top: 8px;
+}
+
+.reel-action-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 5px 10px;
+    border-radius: var(--radius-sm);
+    font-size: 0.68rem;
+    font-weight: 600;
+    text-decoration: none;
+    color: #fff;
+    transition: all var(--transition);
+}
+.reel-action-btn.map-btn { background: rgba(66,133,244,0.25); color: #4285f4; border: 1px solid rgba(66,133,244,0.3); }
+.reel-action-btn.map-btn:hover { background: rgba(66,133,244,0.4); }
+.reel-action-btn.insta-btn { background: rgba(225,48,108,0.2); color: #e1306c; border: 1px solid rgba(225,48,108,0.3); }
+.reel-action-btn.insta-btn:hover { background: rgba(225,48,108,0.35); }
+.reel-action-btn.google-btn { background: rgba(66,133,244,0.15); color: #4285f4; border: 1px solid rgba(66,133,244,0.2); }
+.reel-action-btn.google-btn:hover { background: rgba(66,133,244,0.3); }
+
+/* YouTube card thumbnail */
+.yt-card .yt-thumbnail {
+    height: 180px;
+    background: linear-gradient(135deg, #282828, #1a1a2e);
+    position: relative;
+    overflow: hidden;
+    border-radius: var(--radius) var(--radius) 0 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.yt-play-btn {
+    width: 54px;
+    height: 38px;
+    background: rgba(255,0,0,0.9);
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    font-size: 18px;
+    z-index: 2;
+    transition: transform 0.2s;
+}
+.yt-card:hover .yt-play-btn { transform: scale(1.1); }
+
+/* ============================================
+   NEW: Booking Card Banners (platform indicators)
+   ============================================ */
+.booking-card-banner {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px;
+    color: #fff;
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    border-radius: var(--radius) var(--radius) 0 0;
+}
+.booking-card-banner i { font-size: 14px; }
+
+.booking-link {
+    width: 100%;
+    justify-content: center;
+    text-decoration: none !important;
+    font-size: 0.78rem;
+    padding: 8px 14px;
+}
+
+/* ============================================
+   NEW: Activity Card with Photo Background
+   ============================================ */
+.activity-card {
+    position: relative;
+    overflow: hidden;
+}
+
+.activity-photo {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 120px;
+    height: 100%;
+    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+    z-index: 0;
+}
+
+.activity-photo-overlay {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(to right, var(--bg-3) 0%, transparent 100%);
+}
+
+.activity-content {
+    position: relative;
+    z-index: 1;
+}
+
+/* ============================================
+   NEW: Section title style
+   ============================================ */
+.section-title {
+    font-size: 1.1rem;
+    font-weight: 700;
+    margin-bottom: 12px;
+    color: var(--text-1);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.section-title i { color: var(--accent); }

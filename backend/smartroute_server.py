@@ -848,7 +848,7 @@ agent_manager = AgentManager()
 # FastAPI App
 # ============================================
 
-app = FastAPI(title="SmartRoute v7.0 - True Agentic AI")
+app = FastAPI(title="SmartRoute v10.0 - Fully Agentic AI")
 
 app.add_middleware(
     CORSMiddleware,
@@ -1414,7 +1414,7 @@ async def websocket_agents(websocket: WebSocket):
 
 if __name__ == "__main__":
     print("\n" + "="*60)
-    print("🤖 SmartRoute v9.0 - Agentic AI Travel Planner")
+    print("🤖 SmartRoute v10.0 - Fully Agentic AI Travel Planner")
     print("="*60)
     print(f"✅ {len(agent_manager.agents)} Autonomous Agents Active")
     print(f"✅ AI Chatbot Ready")
