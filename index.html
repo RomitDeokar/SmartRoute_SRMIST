@@ -4,9 +4,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SmartRoute v14.0 — Agentic AI Travel Planner</title>
+    <title>Smart Route SRMist — Agentic AI Travel Planner</title>
     <meta name="description"
-        content="Multi-Agent Autonomous Travel Intelligence System with 7 specialized AI agents, MDP/RL, Bayesian inference, and beautiful modern UI.">
+        content="Smart Route SRMist - Multi-Agent Autonomous Travel Intelligence System with 7 specialized AI agents, deep Chennai/SRM integration, MDP/RL, Bayesian inference.">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap"
         rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.5.0/css/all.min.css">
@@ -22,7 +22,7 @@
         <div class="header-inner">
             <div class="logo">
                 <div class="logo-icon">🤖</div>
-                <span>SmartRoute v14.0</span>
+                <span>Smart Route SRMist</span>
                 <span class="badge">Agentic AI</span>
             </div>
             <div class="header-actions">
@@ -64,13 +64,24 @@
             <div class="panel">
                 <div class="panel-title"><i class="fas fa-plane-departure"></i> Plan Your Trip</div>
                 <div class="form-group">
-                    <label class="form-label">Destination</label>
+                    <label class="form-label"><i class="fas fa-map-marker-alt" style="color:#ef4444"></i> Your Location (Origin)</label>
                     <div style="display:flex;gap:6px">
-                        <input type="text" id="destination" class="form-input" placeholder="Paris, Tokyo, Jaipur..."
+                        <input type="text" id="origin" class="form-input" placeholder="e.g. Chennai, SRM University, IIT Bombay..."
+                            style="flex:1" aria-label="Origin">
+                        <button class="btn-icon" onclick="detectUserLocation()" title="Detect GPS Location" aria-label="Detect Location"><i
+                                class="fas fa-crosshairs"></i></button>
+                    </div>
+                    <small style="color:var(--text-3);font-size:0.72rem">Where are you traveling from? (city, landmark, or use GPS)</small>
+                </div>
+                <div class="form-group">
+                    <label class="form-label"><i class="fas fa-plane-arrival" style="color:#667eea"></i> Destination</label>
+                    <div style="display:flex;gap:6px">
+                        <input type="text" id="destination" class="form-input" placeholder="Jaipur, Taj Mahal Agra, Marina Beach Chennai..."
                             style="flex:1" aria-label="Destination">
                         <button class="btn-icon" onclick="startVoice()" title="Voice Input" aria-label="Voice Input"><i
                                 class="fas fa-microphone"></i></button>
                     </div>
+                    <small style="color:var(--text-3);font-size:0.72rem">Any place: cities, landmarks, specific spots</small>
                 </div>
                 <div class="form-row">
                     <div class="form-group">
@@ -90,6 +101,7 @@
                 </div>
                 <div class="checkbox-row">
                     <label class="checkbox-label"><input type="checkbox"> ✈️ Flights</label>
+                    <label class="checkbox-label"><input type="checkbox"> 🚂 Trains</label>
                     <label class="checkbox-label"><input type="checkbox" checked> 🏨 Hotels</label>
                     <label class="checkbox-label"><input type="checkbox" checked> 🍽️ Restaurants</label>
                     <label class="checkbox-label"><input type="checkbox" checked> 🚗 Transport</label>
@@ -97,6 +109,15 @@
                 <button class="btn btn-primary" id="generateBtn"
                     style="width:100%;justify-content:center;margin-top:6px">
                     <i class="fas fa-robot"></i> Generate AI Trip
+                </button>
+                <div id="backendStatus" style="font-size:0.7rem;text-align:center;margin-top:4px;color:var(--text-secondary)">Checking backend...</div>
+                <button class="btn" id="recommendBtn" onclick="openRecommendModal()"
+                    style="width:100%;justify-content:center;margin-top:6px;background:linear-gradient(135deg,rgba(236,72,153,0.15),rgba(139,92,246,0.15));color:#ec4899;border:1px solid rgba(236,72,153,0.3)">
+                    <i class="fas fa-compass"></i> Help Me Choose a Destination
+                </button>
+                <button class="btn" id="halfDayBtn" onclick="openHalfDayModal()"
+                    style="width:100%;justify-content:center;margin-top:6px;background:linear-gradient(135deg,rgba(6,182,212,0.15),rgba(16,185,129,0.15));color:#06b6d4;border:1px solid rgba(6,182,212,0.3)">
+                    <i class="fas fa-clock"></i> Plan Half-Day / Nearby
                 </button>
             </div>
 
@@ -120,8 +141,14 @@
 
             <!-- Bayesian Preferences -->
             <div class="panel">
-                <div class="panel-title"><i class="fas fa-brain"></i> Bayesian Preferences</div>
+                <div class="panel-title"><i class="fas fa-brain"></i> Bayesian Preferences (Beta)</div>
                 <div id="bayesianBars"></div>
+            </div>
+
+            <!-- Dirichlet Preferences -->
+            <div class="panel">
+                <div class="panel-title"><i class="fas fa-chart-pie"></i> Dirichlet Proportions</div>
+                <div id="dirichletPanel" class="text-sm text-muted">Rate activities to see Dirichlet allocation...</div>
             </div>
         </aside>
 
@@ -171,6 +198,8 @@
                     <div class="wizard-connector"></div>
                     <div class="wizard-step" data-step="choose_flights"><span class="step-icon">✈️</span><span class="step-label">Flights</span></div>
                     <div class="wizard-connector"></div>
+                    <div class="wizard-step" data-step="choose_trains"><span class="step-icon">🚂</span><span class="step-label">Trains</span></div>
+                    <div class="wizard-connector"></div>
                     <div class="wizard-step" data-step="choose_hotels"><span class="step-icon">🏨</span><span class="step-label">Hotels</span></div>
                     <div class="wizard-connector"></div>
                     <div class="wizard-step" data-step="choose_cabs"><span class="step-icon">🚗</span><span class="step-label">Transport</span></div>
@@ -190,6 +219,7 @@
                     </div>
                     <div class="agent-prompt-actions" id="agentPromptActions">
                         <button class="btn btn-primary btn-sm" onclick="agenticSearchFlights()"><i class="fas fa-plane"></i> Search Flights</button>
+                        <button class="btn btn-sm" style="background:rgba(6,182,212,0.15);color:#06b6d4" onclick="agenticSearchTrains()"><i class="fas fa-train"></i> Search Trains</button>
                         <button class="btn btn-sm" style="background:rgba(16,185,129,0.15);color:#10b981" onclick="agenticSearchHotels()"><i class="fas fa-hotel"></i> Search Hotels</button>
                         <button class="btn btn-sm" style="background:rgba(245,158,11,0.15);color:#f59e0b" onclick="agenticSearchCabs()"><i class="fas fa-car"></i> Search Cabs</button>
                         <button class="btn btn-sm" style="background:rgba(139,92,246,0.15);color:#8b5cf6" onclick="agenticSkipToReview()"><i class="fas fa-forward"></i> Skip to Review</button>
@@ -207,6 +237,19 @@
                         </select>
                     </div>
                     <div id="flightResultsList" class="booking-results-grid"></div>
+                </div>
+
+                <!-- Train Results Panel -->
+                <div class="wizard-panel" id="trainResultsPanel" style="display:none">
+                    <div class="panel-title"><i class="fas fa-train"></i> 🚂 Train Options — Agent Found</div>
+                    <div class="wizard-panel-controls">
+                        <select id="trainSort" onchange="sortTrainResults(this.value)">
+                            <option value="price">Sort: Price (Low to High)</option>
+                            <option value="duration">Sort: Duration</option>
+                            <option value="rating">Sort: Rating</option>
+                        </select>
+                    </div>
+                    <div id="trainResultsList" class="booking-results-grid"></div>
                 </div>
 
                 <!-- Hotel Results Panel -->
@@ -394,6 +437,12 @@
             <div class="panel">
                 <div class="panel-title"><i class="fas fa-lightbulb"></i> AI Reasoning</div>
                 <div id="explainPanel" class="text-sm text-muted">Agents will explain their decisions here...</div>
+            </div>
+
+            <!-- POMDP Belief State -->
+            <div class="panel">
+                <div class="panel-title"><i class="fas fa-brain"></i> Belief State (POMDP)</div>
+                <div id="pomdpPanel" class="text-sm text-muted">Belief updates will appear after rating activities...</div>
             </div>
 
 
@@ -653,10 +702,134 @@
     <!-- === TOAST CONTAINER === -->
     <div class="toast-container" id="toastContainer"></div>
 
+    <!-- === DESTINATION RECOMMENDATION MODAL === -->
+    <div class="delay-modal-overlay" id="recommendModal">
+        <div class="delay-modal" style="max-width:650px">
+            <div class="delay-modal-header">
+                <h3><i class="fas fa-compass" style="color:#ec4899"></i> Help Me Choose a Destination</h3>
+                <button class="btn-icon" onclick="document.getElementById('recommendModal').classList.remove('active')">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="delay-modal-body">
+                <p style="color:var(--text-2);font-size:0.85rem;margin-bottom:12px">Not sure where to go? Tell us your preferences and budget — we'll only show destinations you can actually afford!</p>
+                
+                <div class="delay-field">
+                    <label><i class="fas fa-map-marker-alt"></i> Your Current City (helps find nearby destinations)</label>
+                    <input type="text" id="recCurrentLocation" placeholder="e.g., Chennai, Mumbai, Delhi..." value="">
+                </div>
+                <div class="delay-field">
+                    <label><i class="fas fa-wallet"></i> Total Trip Budget (₹)</label>
+                    <input type="number" id="recBudget" min="5000" value="20000" step="5000">
+                    <small style="color:var(--text-3);font-size:0.75rem">We'll only show places within your budget</small>
+                </div>
+                <div class="delay-field">
+                    <label><i class="fas fa-calendar"></i> Trip Duration (days)</label>
+                    <input type="number" id="recDuration" min="1" max="30" value="3">
+                </div>
+                <div class="delay-field">
+                    <label><i class="fas fa-heart"></i> What interests you? (select all that apply)</label>
+                    <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:6px">
+                        <label class="pref-chip"><input type="checkbox" value="nature" class="rec-pref"> 🌿 Nature</label>
+                        <label class="pref-chip"><input type="checkbox" value="culture" class="rec-pref"> 🏛️ Culture</label>
+                        <label class="pref-chip"><input type="checkbox" value="adventure" class="rec-pref"> 🏔️ Adventure</label>
+                        <label class="pref-chip"><input type="checkbox" value="beach" class="rec-pref"> 🏖️ Beach</label>
+                        <label class="pref-chip"><input type="checkbox" value="food" class="rec-pref"> 🍽️ Food</label>
+                        <label class="pref-chip"><input type="checkbox" value="nightlife" class="rec-pref"> 🌃 Nightlife</label>
+                        <label class="pref-chip"><input type="checkbox" value="spiritual" class="rec-pref"> 🛕 Spiritual</label>
+                        <label class="pref-chip"><input type="checkbox" value="shopping" class="rec-pref"> 🛍️ Shopping</label>
+                        <label class="pref-chip"><input type="checkbox" value="history" class="rec-pref"> 📜 History</label>
+                    </div>
+                </div>
+                <div style="display:flex;gap:8px">
+                    <div class="delay-field" style="flex:1">
+                        <label><i class="fas fa-globe"></i> Region (optional)</label>
+                        <select id="recContinent">
+                            <option value="">Any</option>
+                            <option value="asia">Asia</option>
+                            <option value="europe">Europe</option>
+                        </select>
+                    </div>
+                    <div class="delay-field" style="flex:1">
+                        <label><i class="fas fa-temperature-high"></i> Weather Preference</label>
+                        <select id="recWeather">
+                            <option value="">Any</option>
+                            <option value="warm">☀️ Warm</option>
+                            <option value="cold">❄️ Cold</option>
+                            <option value="moderate">🌤️ Moderate</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="delay-field">
+                    <label><i class="fas fa-calendar-alt"></i> Travel Month (optional)</label>
+                    <select id="recMonth">
+                        <option value="">Any month</option>
+                        <option value="january">January</option><option value="february">February</option>
+                        <option value="march">March</option><option value="april">April</option>
+                        <option value="may">May</option><option value="june">June</option>
+                        <option value="july">July</option><option value="august">August</option>
+                        <option value="september">September</option><option value="october">October</option>
+                        <option value="november">November</option><option value="december">December</option>
+                    </select>
+                </div>
+                <button class="btn btn-accent btn-full" onclick="getRecommendations()" style="background:linear-gradient(135deg,#ec4899,#8b5cf6)">
+                    <i class="fas fa-magic"></i> Find My Perfect Destination
+                </button>
+                <div id="recommendResults" style="margin-top:12px"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- === HALF-DAY PLANNING MODAL === -->
+    <div class="delay-modal-overlay" id="halfDayModal">
+        <div class="delay-modal" style="max-width:600px">
+            <div class="delay-modal-header">
+                <h3><i class="fas fa-clock" style="color:#06b6d4"></i> Plan Your Remaining Time</h3>
+                <button class="btn-icon" onclick="document.getElementById('halfDayModal').classList.remove('active')">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="delay-modal-body">
+                <p style="color:var(--text-2);font-size:0.85rem;margin-bottom:12px">Enter ANY location — a landmark, university, neighborhood, cafe, or address — and we'll plan activities around it!</p>
+                
+                <div class="delay-field">
+                    <label><i class="fas fa-map-marker-alt"></i> Where are you? (any location works!)</label>
+                    <input type="text" id="hdLocation" placeholder="e.g., Marina Beach Chennai, IIT Bombay, Connaught Place Delhi...">
+                    <small style="color:var(--text-3);font-size:0.75rem">Works for any place: landmarks, malls, universities, restaurants, streets...</small>
+                </div>
+                <div style="display:flex;gap:8px">
+                    <div class="delay-field" style="flex:1">
+                        <label><i class="fas fa-hourglass-half"></i> Hours Available</label>
+                        <input type="number" id="hdHours" min="1" max="12" value="5" step="0.5">
+                    </div>
+                    <div class="delay-field" style="flex:1">
+                        <label><i class="fas fa-sun"></i> Time of Day</label>
+                        <select id="hdTimeOfDay">
+                            <option value="morning">🌅 Morning</option>
+                            <option value="afternoon" selected>☀️ Afternoon</option>
+                            <option value="evening">🌆 Evening</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="delay-field">
+                    <label><i class="fas fa-wallet"></i> Budget for remaining time (₹)</label>
+                    <input type="number" id="hdBudget" min="500" value="3000" step="500">
+                </div>
+                <div class="delay-field">
+                    <label class="checkbox-label"><input type="checkbox" id="hdIncludeFood" checked> 🍽️ Include food/restaurant break</label>
+                </div>
+                <button class="btn btn-accent btn-full" onclick="planHalfDay()" style="background:linear-gradient(135deg,#06b6d4,#10b981)">
+                    <i class="fas fa-magic"></i> Plan My Remaining Time
+                </button>
+                <div id="halfDayResults" style="margin-top:12px"></div>
+            </div>
+        </div>
+    </div>
+
     <!-- === SCRIPTS === -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="js/app.js?v=14"></script>
-    <script src="js/agentic.js?v=14"></script>
+    <script src="js/app.js?v=16"></script>
+    <script src="js/agentic.js?v=16"></script>
 
 </body>
 

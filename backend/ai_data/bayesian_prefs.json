@@ -1,0 +1,32 @@
+{
+  "prefs": {
+    "cultural": {
+      "alpha": 3.0,
+      "beta": 2.0
+    },
+    "adventure": {
+      "alpha": 2.0,
+      "beta": 2.0
+    },
+    "food": {
+      "alpha": 2.0,
+      "beta": 3.0
+    },
+    "relaxation": {
+      "alpha": 2.0,
+      "beta": 2.0
+    },
+    "shopping": {
+      "alpha": 2.0,
+      "beta": 2.0
+    },
+    "nature": {
+      "alpha": 2.0,
+      "beta": 2.0
+    },
+    "nightlife": {
+      "alpha": 2.0,
+      "beta": 2.0
+    }
+  }
+}

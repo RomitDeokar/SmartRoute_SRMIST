@@ -1,519 +1,126 @@
-# ✅ Feature Implementation Checklist
+# Feature Implementation Status
 
-## 🤖 Multi-Agent System
+## Multi-Agent System
 
-### 7 Specialized Agents
-- ✅ **Planner Agent** - MCTS + Hierarchical RL orchestrator
-- ✅ **Weather Risk Agent** - Bayesian probability forecasting
-- ✅ **Crowd Analyzer Agent** - Footfall analysis with penalties
-- ✅ **Budget Optimizer Agent** - Dynamic budget reallocation
-- ✅ **Preference Agent** - Beta/Dirichlet distribution learning
-- ✅ **Booking Assistant Agent** - Flight/hotel search simulation
-- ✅ **Explainability Agent** - Plain-language reasoning
+### 7 Coordinated Agents
+- **Planner Agent** — MCTS-based itinerary optimisation, nearest-neighbor routing
+- **Weather Risk Agent** — Naive Bayes classifier on OpenMeteo data
+- **Crowd Analyzer Agent** — Time-of-day crowd heuristic (not real-time footfall)
+- **Budget Optimizer Agent** — Budget breakdown + MDP reward-based allocation
+- **Preference Agent** — Beta distribution (Bayesian) preference learning, persisted
+- **Booking Assistant Agent** — Flight/train/hotel/cab search with booking URLs
+- **Explainability Agent** — MDP decision trace, POMDP belief display
 
 ### Agent Features
-- ✅ Visual status indicators (idle/active)
-- ✅ Real-time activity display
-- ✅ Color-coded agent cards
-- ✅ Agent communication logs
-- ✅ Message passing queue
-- ✅ Asynchronous execution
-- ✅ State synchronization
+- Visual status indicators (idle / working / completed)
+- Real-time WebSocket messages from backend during trip generation
+- Agent communication graph showing actual data-flow connections
+- Activity log with timestamped agent messages
 
 ---
 
-## 🧮 MDP/RL Implementation
+## MDP / RL Implementation
 
 ### MDP Components
-- ✅ **State Space** - 6 dimensions (day, location, budget, weather, crowd, satisfaction)
-- ✅ **Action Space** - 7 actions (keep, swap, change, reorder, adjust, add, remove)
-- ✅ **Transition Function** - P(s'|s,a) with stochasticity
-- ✅ **Reward Function** - R = α(rating) + β(budget) + γ(weather) - δ(crowd)
-- ✅ **Policy** - RL-learned optimal strategy
+- **State Space** — day, location, budget_remaining, weather_prob, crowd_level, satisfaction
+- **Action Space** — keep_plan, swap_activity, reorder_destinations, adjust_budget, add_contingency, remove_activity
+- **Transition** — concrete itinerary mutations (swap/reorder/remove real activities)
+- **Reward** — R = α·satisfaction + β·budget_adherence + γ·weather_match − δ·crowd_penalty (computed from real data)
 
 ### RL Algorithms
-- ✅ **Q-Learning** - Full implementation with Q-table
-- ✅ **DQN** - Deep Q-Network simulation
-- ✅ **PPO** - Proximal Policy Optimization simulation
-- ✅ **MCTS** - Monte Carlo Tree Search with UCB1
-- ✅ **Epsilon-Greedy** - Exploration vs exploitation
-- ✅ **Experience Replay** - Buffer for DQN
+- **Q-Learning** — ε-greedy with Q-table, updated on each user rating, persisted to JSON
+- **MCTS** — 50-iteration Monte Carlo Tree Search operating on real itinerary variants
+- **ε-Greedy** — exploration / exploitation with decay
+
+> **Not implemented**: DQN, PPO, Experience Replay, Hierarchical RL, Gaussian Processes.
+> These were removed to avoid false claims.
 
 ### RL Features
-- ✅ Cumulative reward tracking
-- ✅ Episode-by-episode learning
-- ✅ Live training visualization
-- ✅ Policy extraction
-- ✅ Q-value updates
-- ✅ Reward graph (Chart.js)
-- ✅ Learning rate decay
+- Backend-computed reward per rating event
+- Reward history chart (real data only, no random walk)
+- Q-table persistence across sessions
+- Policy extraction from Q-table
 
 ---
 
-## 📊 Bayesian Inference
+## Bayesian Inference
 
 ### Distributions
-- ✅ **Beta Distribution** - Binary preference modeling
-- ✅ **Dirichlet Distribution** - Multi-category preferences
-- ✅ **Naive Bayes** - Weather classification
-- ✅ **Posterior Updates** - Continuous learning from ratings
+- **Beta Distribution** — per-category binary preference (alpha, beta parameters), updated on ratings >=4 / < 4
+- **Dirichlet Distribution** — models proportion of time allocated across categories Dir(alpha_1,...,alpha_K), updated on each rating with weight proportional to stars
+- **Naive Bayes** — weather classification (sunny/cloudy/rainy) from OpenMeteo features (temp, humidity, cloud_cover, wind_speed, precipitation)
 
 ### Bayesian Features
-- ✅ Prior beliefs initialization
-- ✅ Likelihood calculations
-- ✅ Posterior probability updates
-- ✅ Confidence intervals
-- ✅ Live probability bars
-- ✅ Animated transitions (60% → 85%)
-- ✅ Preference evolution tracking
+- Prior initialisation (alpha=2, beta=2 uniform for Beta; alpha=2 for Dirichlet)
+- Posterior updates on each user rating
+- Confidence intervals (95%) via scipy Beta quantiles
+- Dirichlet expected proportions and mode proportions displayed in UI
+- Frontend bars read persisted backend state
+- Session persistence to JSON
 
 ---
 
-## 🎨 UI/UX Features
+## POMDP
 
-### Dashboard Layout
-- ✅ **Hero Section** with interactive map
-- ✅ **Left Sidebar** with persona, budget, preferences
-- ✅ **Right Sidebar** with explanations, weather, crowd
-- ✅ **Bottom Panel** with tabs and visualizations
-- ✅ **Header** with logo, demo button, theme toggle
-
-### Design Elements
-- ✅ Modern gradient color scheme (blue → purple → pink)
-- ✅ Glassmorphism effects (frosted glass panels)
-- ✅ Inter font family
-- ✅ Smooth animations and transitions
-- ✅ Micro-interactions (hover effects)
-- ✅ Loading states with skeleton screens
-- ✅ Toast notifications
-- ✅ Modal dialogs
-
-### Responsive Design
-- ✅ Desktop optimized (1920px)
-- ✅ Tablet compatible (1024px)
-- ✅ Mobile friendly (768px)
-- ✅ Collapsible sidebars
-- ✅ Flexible grid layouts
-- ✅ Touch-friendly buttons
-
-### Dark/Light Mode
-- ✅ Theme toggle button
-- ✅ CSS variable system
-- ✅ Smooth theme transitions
-- ✅ LocalStorage persistence
-- ✅ System preference detection
+- **Belief state** over hidden states: excellent / good / average / poor trip quality
+- **Bayesian belief update**: P(o|s) × b(s) normalised after each observation
+- Observations: user ratings (high/mid/low) and weather class (sunny/cloudy/rainy)
+- Belief persisted to JSON and displayed in the UI
 
 ---
 
-## 🗺️ Map Integration
+## Weather
 
-### Mapbox Features
-- ✅ Interactive 3D map
-- ✅ Route visualization (gradient line)
-- ✅ City markers (color-coded)
-- ✅ Popup information cards
-- ✅ Navigation controls
-- ✅ Zoom in/out buttons
-- ✅ Crowd heatmap overlay
-- ✅ Smooth camera transitions
-- ✅ Bounds fitting
+- Real OpenMeteo API data (temperature, precipitation, wind, etc.)
+- Naive Bayes classifier outputs P(sunny), P(cloudy), P(rainy)
+- Weather probabilities feed into MDP reward function
+- Activities on high-risk days receive weather warnings
 
-### Destinations
-- ✅ Rajasthan, India (Jaipur, Udaipur, Jodhpur, Jaisalmer)
-- ✅ Kerala, India (Kochi, Munnar, Alleppey)
-- ✅ Extensible destination system
+## Crowd
 
----
+- Time-of-day heuristic: assigns crowd level 0-100 based on activity start time
+- Not real-time footfall data — a reasonable approximation
 
-## 📅 Itinerary Generation
+## Budget
 
-### Input Features
-- ✅ Destination selection
-- ✅ Duration (1-30 days)
-- ✅ Budget input (₹)
-- ✅ Start date picker
-- ✅ Preference tags (multi-select)
-- ✅ Form validation
-
-### Output Features
-- ✅ Day-by-day timeline
-- ✅ Activity cards with details
-- ✅ Time scheduling
-- ✅ Cost breakdown
-- ✅ Rating display (stars)
-- ✅ Drag & drop reordering (prepared)
-- ✅ Export to PDF
-- ✅ Share functionality
-
-### Activity Details
-- ✅ Name and description
-- ✅ Type (cultural, adventure, relaxation, food, nightlife, shopping)
-- ✅ Duration (hours)
-- ✅ Cost (currency)
-- ✅ Rating (1-5 stars)
-- ✅ Crowd level (low/medium/high)
-- ✅ Weather suitability
+- Backend computes full breakdown: accommodation, food, activities, transport, emergency
+- Frontend displays backend breakdown (no erroneous local calculations)
+- MDP reward penalises budget over-/under-utilisation
 
 ---
 
-## 🚨 Real-Time Adaptation
+## Itinerary Optimisation
 
-### Emergency Scenarios
-- ✅ **Rainstorm** - Outdoor → Indoor activity swap
-- ✅ **Budget Exceeded** - Cost optimization and reallocation
-- ✅ **Crowd Surge** - Peak hour avoidance
-- ✅ **Venue Closed** - Alternative location search
+- **Nearest-neighbor TSP** orders daily activities by GPS proximity
+- **MCTS** evaluates multiple itinerary variants (swap, reorder, trim) and picks the highest-reward one
+- Activities from real APIs (Overpass, OpenTripMap, Wikipedia)
+- Zero duplicate places across days
 
-### Adaptation Features
-- ✅ Automatic replanning triggers
-- ✅ Agent activation sequences
-- ✅ Before/After comparison modal
-- ✅ Real-time state updates
-- ✅ Visual change indicators
-- ✅ Explanation generation
-- ✅ User notifications
+## Booking
 
----
+- Flights: search with realistic distance-based pricing, 5 booking platform URLs
+- Trains: Indian rail types with class-based pricing, 3 booking platform URLs
+- Hotels: brand-tier pricing with photo URLs and 6 booking platform URLs
+- Cabs: category-based pricing (auto, sedan, SUV, luxury)
 
-## 💡 Explainability
+## Frontend
 
-### Explanation Features
-- ✅ Plain-language reasoning
-- ✅ Agent attribution
-- ✅ Confidence scores (%)
-- ✅ Factor importance
-- ✅ Decision chains
-- ✅ "Why this?" tooltips
-- ✅ Explanation cards
-- ✅ Historical reasoning log
-
-### POMDP Visualization
-- ✅ 5-step flow diagram
-- ✅ Observation → Inference → State → Policy → Action
-- ✅ Visual arrows and icons
-- ✅ Step descriptions
-- ✅ Interactive display
+- Wikipedia/Wikimedia photo source (no Pexels)
+- Real backend errors surfaced in agent conversation panel
+- No silent fallback hiding — errors shown to user
+- Location-specific YouTube/Instagram content with destination-aware search queries
 
 ---
 
-## 📊 Visualizations
+## What Is NOT Implemented
 
-### Charts & Graphs
-- ✅ **RL Reward Chart** - Cumulative progress (Chart.js line)
-- ✅ **Agent Communication Graph** - Message matrix (Chart.js bar)
-- ✅ **MDP Visualization** - State transition diagram (Canvas)
-- ✅ **Budget Meter** - Visual progress bar
-- ✅ **Preference Bars** - Bayesian probabilities
-- ✅ **Weather Cards** - 3-day forecast
-- ✅ **Crowd Heatmap** - Location density
+The following features were previously claimed but are not present:
 
-### Animation Effects
-- ✅ Smooth transitions (300ms)
-- ✅ Slide-in animations
-- ✅ Fade effects
-- ✅ Pulse animations
-- ✅ Shimmer effects
-- ✅ Loading spinners
-- ✅ Progress indicators
-
----
-
-## 🎭 Demo Mode
-
-### 60-Second Auto Demo
-- ✅ **Step 1 (5s)** - Generate base itinerary
-- ✅ **Step 2 (5s)** - Trigger rainstorm
-- ✅ **Step 3 (5s)** - Show before/after comparison
-- ✅ **Step 4 (10s)** - Simulate 1★ rating
-- ✅ **Step 5 (10s)** - RL adjustment
-- ✅ **Step 6 (10s)** - Bayesian preference shift
-- ✅ **Step 7 (10s)** - Reward graph trending up
-- ✅ **Step 8 (5s)** - Monitoring dashboard
-
-### Demo Features
-- ✅ Automated step progression
-- ✅ Visual indicators
-- ✅ Toast notifications
-- ✅ Log messages
-- ✅ Tab switching
-- ✅ Keyboard shortcut (Ctrl+D)
-- ✅ Pause/resume capability
-- ✅ Completion message
-
----
-
-## 🎮 Interactive Features
-
-### User Interactions
-- ✅ **Persona Selection** - Solo/Family/Luxury
-- ✅ **Budget Tracking** - Real-time updates
-- ✅ **Activity Rating** - 1-5 star system
-- ✅ **Voice Input** - Speech recognition (Web Speech API)
-- ✅ **Tab Navigation** - Bottom panel tabs
-- ✅ **Modal Dialogs** - Onboarding, comparison
-- ✅ **Emergency Buttons** - Scenario triggers
-
-### Voice Commands
-- ✅ "Show me cultural sites"
-- ✅ "Change my budget to X"
-- ✅ "I prefer more relaxation"
-- ✅ "Replan my itinerary"
-- ✅ Speech recognition integration
-- ✅ Fallback simulation
-- ✅ Transcript display
-
----
-
-## 💾 Data Management
-
-### State Management
-- ✅ Global STATE object
-- ✅ LocalStorage persistence
-- ✅ Auto-save (60s intervals)
-- ✅ Load on startup
-- ✅ State versioning
-- ✅ Migration support
-
-### Saved Data
-- ✅ User preferences
-- ✅ Budget information
-- ✅ Current persona
-- ✅ Theme preference
-- ✅ Current itinerary
-- ✅ RL training history
-- ✅ Bayesian observations
-
----
-
-## 📱 Export & Share
-
-### Export Features
-- ✅ **PDF Export** (jsPDF)
-  - Full itinerary
-  - Day-by-day schedule
-  - Activity details
-  - Budget breakdown
-  - Beautiful formatting
-
-### Share Features
-- ✅ **Share Button** (Web Share API)
-- ✅ Shareable link generation
-- ✅ Copy to clipboard fallback
-- ✅ Social media ready
-- ✅ Mobile-friendly
-
----
-
-## 🔧 System Features
-
-### Logging System
-- ✅ Real-time log display
-- ✅ Color-coded entries (info, success, warning, error)
-- ✅ Timestamps
-- ✅ Agent attribution
-- ✅ Scrollable container
-- ✅ Log history (100 entries)
-
-### Monitoring Dashboard
-- ✅ **System Uptime** - 99.8%
-- ✅ **Avg Response Time** - 120ms
-- ✅ **Agent Efficiency** - 94.2%
-- ✅ **User Satisfaction** - 4.7/5.0
-- ✅ Metric cards
-- ✅ Real-time updates
-
-### Performance
-- ✅ Optimized animations (GPU-accelerated)
-- ✅ Debounced event handlers
-- ✅ Lazy loading concepts
-- ✅ Minimal DOM manipulation
-- ✅ Efficient state updates
-- ✅ Chart rendering optimization
-
----
-
-## 📚 Documentation
-
-### Comprehensive Docs
-- ✅ **README.md** - Complete system overview (18KB)
-- ✅ **QUICK_START.md** - Getting started guide (9KB)
-- ✅ **ARCHITECTURE.md** - System architecture (16KB)
-- ✅ **FEATURES.md** - This checklist
-
-### Code Documentation
-- ✅ Inline comments throughout
-- ✅ Function descriptions
-- ✅ Module headers
-- ✅ Configuration comments
-- ✅ Algorithm explanations
-
----
-
-## 🎓 Educational Features
-
-### Syllabus Alignment
-- ✅ **Unit 1** - Multi-agent systems, agentic patterns
-- ✅ **Unit 2** - RL (MDP/PPO/DQN), Bayesian adaptability
-- ✅ **Unit 3** - MCTS, POMDP, goal-oriented reasoning
-- ✅ **Unit 4** - Explainability, human-AI interaction
-- ✅ **Unit 5** - Travel vertical, GenAI concepts
-
-### Learning Resources
-- ✅ Visual algorithm explanations
-- ✅ Interactive demonstrations
-- ✅ Mathematical formulations
-- ✅ Code examples
-- ✅ Reference papers cited
-
----
-
-## 🌟 Expo-Winning Features
-
-### Unique Selling Points
-- ✅ 7 collaborating AI agents
-- ✅ Live RL training visualization
-- ✅ Bayesian preference evolution
-- ✅ MCTS planning with 47 iterations
-- ✅ Emergency replanning demos
-- ✅ Before/After comparisons
-- ✅ POMDP framework visualization
-- ✅ Voice command integration
-- ✅ Beautiful modern UI
-- ✅ Production-ready code
-
-### Demo-Ready
-- ✅ 60-second automated showcase
-- ✅ One-click deployment
-- ✅ No setup required
-- ✅ Works offline (after first load)
-- ✅ Cross-browser compatible
-- ✅ Mobile responsive
-
----
-
-## 🚀 Production Quality
-
-### Code Quality
-- ✅ ES6+ modern JavaScript
-- ✅ Modular architecture
-- ✅ Clean code principles
-- ✅ Consistent naming
-- ✅ Error handling
-- ✅ Input validation
-
-### Browser Support
-- ✅ Chrome 90+ ✓
-- ✅ Firefox 88+ ✓
-- ✅ Safari 14+ ✓
-- ✅ Edge 90+ ✓
-
-### Accessibility
-- ✅ Semantic HTML
-- ✅ ARIA labels (prepared)
-- ✅ Keyboard navigation
-- ✅ Screen reader support (basic)
-- ✅ Color contrast (WCAG AA)
-- ✅ Focus indicators
-
----
-
-## 🎯 Advanced Features
-
-### Agent System
-- ✅ Queue-based task execution
-- ✅ Parallel agent activation
-- ✅ Result aggregation
-- ✅ Failure recovery
-- ✅ Retry logic (prepared)
-
-### RL System
-- ✅ Q-table persistence
-- ✅ Episode history
-- ✅ Reward tracking
-- ✅ Policy extraction
-- ✅ Hyperparameter tuning
-
-### Bayesian System
-- ✅ Multiple distributions
-- ✅ Confidence intervals
-- ✅ Observation history
-- ✅ Prior updates
-- ✅ Posterior visualization
-
----
-
-## ✨ Polish & Details
-
-### User Experience
-- ✅ Onboarding tutorial
-- ✅ Helpful tooltips
-- ✅ Loading states
-- ✅ Empty states
-- ✅ Error messages
-- ✅ Success feedback
-
-### Visual Polish
-- ✅ Consistent spacing
-- ✅ Harmonious colors
-- ✅ Smooth animations
-- ✅ Hover effects
-- ✅ Active states
-- ✅ Disabled states
-
-### Edge Cases
-- ✅ No internet (map fallback)
-- ✅ Small screens (responsive)
-- ✅ Large datasets (pagination ready)
-- ✅ Invalid input (validation)
-- ✅ Browser compatibility (graceful degradation)
-
----
-
-## 📊 Statistics
-
-### Code Metrics
-- **Total Files:** 13
-- **Total Lines:** ~10,000+
-- **HTML:** 1 file (22KB)
-- **CSS:** 1 file (32KB)
-- **JavaScript:** 9 files (108KB)
-- **Documentation:** 4 files (63KB)
-
-### Feature Count
-- **Agents:** 7
-- **RL Algorithms:** 3 (Q-Learning, DQN, PPO)
-- **Bayesian Distributions:** 3 (Beta, Dirichlet, Naive Bayes)
-- **Visualizations:** 8+
-- **Interactive Elements:** 50+
-- **Emergency Scenarios:** 4
-- **Demo Steps:** 8
-
----
-
-## ✅ Final Verdict
-
-**Status:** ✅ **COMPLETE & PRODUCTION-READY**
-
-**All Features Implemented:** ✅ 100%
-- Multi-Agent System: ✅ Complete
-- MDP/RL: ✅ Complete
-- Bayesian Inference: ✅ Complete
-- UI/UX: ✅ Complete
-- Visualizations: ✅ Complete
-- Demo Mode: ✅ Complete
-- Documentation: ✅ Complete
-
-**Ready for:**
-- ✅ Expo/Demo presentation
-- ✅ Academic evaluation
-- ✅ Production deployment
-- ✅ Further development
-- ✅ Educational use
-
-**Quality Score:** ⭐⭐⭐⭐⭐ (5/5)
-
----
-
-🎉 **PROJECT COMPLETE!** 🚀
-
-**Open `index.html` and explore the future of intelligent travel planning!**
+- DQN (Deep Q-Network)
+- PPO (Proximal Policy Optimisation)
+- Hierarchical RL
+- Gaussian Processes
+- "Emergent behavior" between agents
+- LangChain-based planner agents
+- Real-time crowd data from external APIs
+- Hardcoded accuracy/efficiency/uptime percentages (removed)

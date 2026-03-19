@@ -1,0 +1,11 @@
+{
+  "alphas": {
+    "cultural": 4.0,
+    "adventure": 2.0,
+    "food": 2.5,
+    "relaxation": 2.0,
+    "shopping": 2.0,
+    "nature": 2.0,
+    "nightlife": 2.0
+  }
+}
