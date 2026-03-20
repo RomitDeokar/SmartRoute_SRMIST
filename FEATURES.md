@@ -91,23 +91,23 @@
 
 ## Itinerary Optimisation
 
-- **Nearest-neighbor TSP** orders daily activities by GPS proximity
+- **Nearest-neighbor + 2-opt** orders daily activities by GPS proximity
 - **MCTS** evaluates multiple itinerary variants (swap, reorder, trim) and picks the highest-reward one
 - Activities from real APIs (Overpass, OpenTripMap, Wikipedia)
 - Zero duplicate places across days
 
 ## Booking
 
-- Flights: search with realistic distance-based pricing, 5 booking platform URLs
-- Trains: Indian rail types with class-based pricing, 3 booking platform URLs
-- Hotels: brand-tier pricing with photo URLs and 6 booking platform URLs
-- Cabs: category-based pricing (auto, sedan, SUV, luxury)
+- Flights: booking platform URLs with "Compare on provider" price labels
+- Trains: booking platform URLs with "Compare on provider" price labels
+- Hotels: booking platform URLs with "Compare on provider" price labels
+- Cabs: booking platform URLs with "Compare on provider" price labels
 
 ## Frontend
 
-- Wikipedia/Wikimedia photo source (no Pexels)
+- Creative Commons placeholder photos by category (no dynamic scraping)
 - Real backend errors surfaced in agent conversation panel
-- No silent fallback hiding — errors shown to user
+- Missing-photo placeholders shown explicitly
 - Location-specific YouTube/Instagram content with destination-aware search queries
 
 ---

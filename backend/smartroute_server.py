@@ -6,7 +6,7 @@ Smart Route SRMist - Agentic AI Travel Planner
 - Weather & crowd-based emergency replanning
 - Live location nearby suggestions
 - Language tips via API for all Indian cities
-- Parallel API calls, real Wikipedia photos
+- Parallel API calls, CC placeholder photos with attribution
 - FULL AGENTIC BOOKING: flights, trains, hotels, cabs, payment, history
 - Origin-to-destination routing from user's location
 """
@@ -53,43 +53,74 @@ HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; SmartRouteBot/1.0; +https://g
 # ============================================
 _photo_cache: Dict[str, str] = {}
 _geo_cache: Dict[str, Dict] = {}
-_attraction_cache: Dict[str, List[Dict]] = {}  # city -> attractions
+_attraction_cache: Dict[str, Dict] = {}  # city -> {timestamp, data}
 _language_cache: Dict[str, Dict] = {}
+
+ATTRACTION_CACHE_TTL_SECONDS = 30 * 60
+
+PHOTO_PLACEHOLDERS = {
+    "attraction": "https://sspark.genspark.ai/cfimages?u1=R%2BZY3Tx3vEYhkOm1j2x8pLeov%2BynIZ4OzXHdQ9omdnhjWQtPz%2B1hHpbmU3ScEi4ACuIpA1N3PxFO3rxpooFh3HAP7Ii8OKmU6xst6HfkReVDvaZQkLFjlSLr%2Bx2pyNiFW5PpZX%2B28EP0LVP5mRQ%3D&u2=aRrADDNkh%2BA5lVUD&width=2560",
+    "landmark": "https://sspark.genspark.ai/cfimages?u1=R%2BZY3Tx3vEYhkOm1j2x8pLeov%2BynIZ4OzXHdQ9omdnhjWQtPz%2B1hHpbmU3ScEi4ACuIpA1N3PxFO3rxpooFh3HAP7Ii8OKmU6xst6HfkReVDvaZQkLFjlSLr%2Bx2pyNiFW5PpZX%2B28EP0LVP5mRQ%3D&u2=aRrADDNkh%2BA5lVUD&width=2560",
+    "museum": "https://sspark.genspark.ai/cfimages?u1=6bL718YIIIyfZnO9wqTs9Zmt9CsrFiWXz8rmfLhW9ODp6Oi1z%2BED%2FbVbOTAoY1gP%2FgeTV1VLBAeHovQkdDMO1KoWBXsKFYn0GINgFTnLd34fQRoi8eB%2F9IuVyBrWkX46p3cj%2FhDuxRDaKQnlZkjKtWI0&u2=P0gNi0cNTbvSH5wp&width=2560",
+    "park": "https://sspark.genspark.ai/cfimages?u1=wX%2BCquDhZTOE0eoEieWPRPaNj2%2BnzbtOzmxpp8WFGyO2i7oE7WtaakPc%2BrdgytmcdhL2G84%2Fu%2F8uH5pjOM5i%2BdEQglIW5SJ9qafY%2FXexHiTpNQ%3D%3D&u2=2nYGPh9KVCCwxLrD&width=2560",
+    "beach": "https://sspark.genspark.ai/cfimages?u1=X%2FmNtxmJV5SFnf43IPAGcosNv8RrnoQ7LEJK5NIVcX6lpdTXk%2Bbw5SYxP6w0yjArl0IpZazgm%2BmHwg6iqBDAhE2H62ahIpPJ%2F4ID3puMW8dtz6FWicO43OfjnDqnc%2F8n8svietGvQkvZBWanbDXkYAXz6PRfJ1U%3D&u2=%2BA11ndTEBbUWEONO&width=2560",
+    "religious": "https://sspark.genspark.ai/cfimages?u1=KDpzyu2XhHuxTEV8sfbrlR5gsS76yDnWxYYje2zefxRjfxUaA4n0cCnS%2BFsK%2BD%2BbbwPQCEep3fHZq7e%2BxFNxH5mGDRj%2FYjzvnegzRYB%2BmKTxgFTj8frZC9cBqjsnBYatepOkLg3jWJAEfLmUAupzA%2BNfV5QCSS3HXKF6%2FRfAo7jgMIL79sXzXmicPp5syo%2FbVyc%2Frakl8xgSbqjTHe5tKS6buPTzGd5nVyaFpZUVnsFUGUWDLewPZIXafsIkDRaQtaRav1KkiT4sWXRGXFt1d8h5xs1Iqw%3D%3D&u2=OBUQE%2F3j1TvKzRNs&width=2560",
+    "market": "https://sspark.genspark.ai/cfimages?u1=inECRwNEsP%2B5AEK86uiEQ5IVBino9qMxaz93SA0AMLSR%2BenhxFVB%2FjMxo%2Bcg7bT6sr%2BSGlh3E%2FLaDeyL5RCzO%2ByXp7a12xaKpNcJm39yg8R%2B3%2FV%2Bykin4yY0mIpeTYkUsQ%3D%3D&u2=Jzq3yFx83goQrwjQ&width=2560",
+    "food": "https://sspark.genspark.ai/cfimages?u1=inECRwNEsP%2B5AEK86uiEQ5IVBino9qMxaz93SA0AMLSR%2BenhxFVB%2FjMxo%2Bcg7bT6sr%2BSGlh3E%2FLaDeyL5RCzO%2ByXp7a12xaKpNcJm39yg8R%2B3%2FV%2Bykin4yY0mIpeTYkUsQ%3D%3D&u2=Jzq3yFx83goQrwjQ&width=2560",
+    "hotel": "https://sspark.genspark.ai/cfimages?u1=sii7UsO8n7CZrviwuPn4FC%2B3rzIP61dafR2pzlB1uoakPvBtx3fvnseDgglH6anlYPvexPZdlxnU45yPlxxkpEaoDXVHx6Z1JnrA8RynPDmSDVJTUHqSG9JpKuOHlQ%3D%3D&u2=u8srVTPo3t1HgrQa&width=2560",
+    "transport": "https://sspark.genspark.ai/cfimages?u1=sWq%2BOExuKgpkCtgaT9tcHlzNyhCsVzC2lS6s59llKVZSqnKnD2dJrg%2B%2BSG7zavFvPsb9UVpgiw3ffegUKH7aJfayU8U%2B5V4Ysx8vIK18iIo%2BXo1XtRmL2i1HBax1iuXDhmlynJ6m9AkUFX68%2Bv9o%2FlkeBGJOpR3Ll1M8j70%3D&u2=UO7WYGQok6WUsISo&width=2560",
+}
+
+PHOTO_PLACEHOLDER_CREDIT = "Wikimedia Commons (Creative Commons licensed)"
+
+PLACEHOLDER_TYPE_MAP = {
+    "museum": "museum",
+    "gallery": "museum",
+    "park": "park",
+    "garden": "park",
+    "nature": "park",
+    "nature_reserve": "park",
+    "beach": "beach",
+    "viewpoint": "beach",
+    "religious": "religious",
+    "temple": "religious",
+    "church": "religious",
+    "mosque": "religious",
+    "market": "market",
+    "shopping": "market",
+    "food": "food",
+    "restaurant": "food",
+    "cafe": "food",
+    "historic": "landmark",
+    "fort": "landmark",
+    "palace": "landmark",
+    "monument": "landmark",
+    "architecture": "landmark",
+    "landmark": "landmark",
+    "attraction": "attraction",
+    "hotel": "hotel",
+    "train": "transport",
+    "station": "transport",
+    "transport": "transport",
+}
+
+
+def apply_placeholder_photo(item: Dict, place_type: str) -> None:
+    if item.get("photo"):
+        return
+    key = PLACEHOLDER_TYPE_MAP.get((place_type or "").lower(), "")
+    placeholder = PHOTO_PLACEHOLDERS.get(key)
+    if placeholder:
+        item["photo"] = placeholder
+        item["photos"] = [placeholder]
+        item["photo_is_placeholder"] = True
+        item["photo_credit"] = PHOTO_PLACEHOLDER_CREDIT
 
 # ============================================
 # PHOTO FETCHING
 # ============================================
 async def fetch_wiki_photo_fast(name: str, wiki_title: str = "") -> str:
-    """Fetch a real photo from Wikipedia using the exact article title"""
-    cache_key = wiki_title or name
-    if cache_key in _photo_cache:
-        return _photo_cache[cache_key]
-    
-    title = wiki_title or name
-    try:
-        async with httpx.AsyncClient(timeout=6, headers=HEADERS) as client:
-            resp = await client.get("https://en.wikipedia.org/w/api.php", params={
-                "action": "query", "format": "json",
-                "titles": title.replace("_", " ").replace("%20", " "),
-                "prop": "pageimages",
-                "piprop": "original|thumbnail",
-                "pithumbsize": "500"
-            })
-            if resp.status_code != 200:
-                return ""
-            data = resp.json()
-            pages = data.get("query", {}).get("pages", {})
-            for page in pages.values():
-                if int(page.get("pageid", -1)) < 0:
-                    continue
-                thumb = page.get("thumbnail", {}).get("source", "")
-                original = page.get("original", {}).get("source", "")
-                url = thumb or original
-                if url and ".svg" not in url.lower() and "Flag_of" not in url and "Coat_of" not in url:
-                    _photo_cache[cache_key] = url
-                    return url
-    except Exception as e:
-        print(f"  Wiki photo fetch failed for {cache_key}: {e}")
+    """Deprecated: dynamic photo fetch disabled in favor of CC placeholders."""
     return ""
 
 async def fetch_photos_batch(attractions: List[Dict], city: str) -> None:
@@ -173,11 +204,13 @@ async def geocode_city_fast(city: str) -> Optional[Dict]:
         result = SRM_LOCATIONS[city_lower]
         _geo_cache[city_lower] = result
         return result
-    # Check fuzzy SRM match (e.g. "srm university, kattankulathur, chennai" variations)
-    for key, val in SRM_LOCATIONS.items():
-        if key in city_lower or city_lower in key:
-            _geo_cache[city_lower] = val
-            return val
+    # Check fuzzy SRM match only when the query hints at SRM locations
+    srm_tokens = ("srm", "kattankulathur", "ramapuram", "vadapalani", "trichy")
+    if any(token in city_lower for token in srm_tokens):
+        for key, val in SRM_LOCATIONS.items():
+            if key in city_lower or city_lower in key:
+                _geo_cache[city_lower] = val
+                return val
     
     # Try multiple search strategies in order
     search_queries = [
@@ -494,9 +527,13 @@ async def get_attractions_api(city: str) -> List[Dict]:
     
     city_lower = city.lower().strip()
     
-    # Check cache
-    if city_lower in _attraction_cache:
-        return [dict(a) for a in _attraction_cache[city_lower]]
+    # Check cache with TTL
+    cache_entry = _attraction_cache.get(city_lower)
+    if cache_entry:
+        age = time.time() - cache_entry.get("timestamp", 0)
+        if age < ATTRACTION_CACHE_TTL_SECONDS:
+            return [dict(a) for a in cache_entry.get("data", [])]
+        _attraction_cache.pop(city_lower, None)
     
     # Geocode first
     geo = await geocode_city_fast(city)
@@ -610,26 +647,15 @@ async def get_attractions_api(city: str) -> List[Dict]:
              "photo": "", "photos": [], "lat": lat + 0.01, "lon": lon - 0.005, "wiki": f"{city}_cultural"},
         ]
     
-    # Fetch photos in parallel (only top 6 for speed — photos fetched lazily on frontend too)
-    top_for_photos = attractions[:6]
-    await fetch_photos_batch(top_for_photos, city)
-    # Quick pass for missing - only try the name + city combo, don't block
-    missing_tasks = []
-    for a in top_for_photos:
-        if not a.get("photo"):
-            missing_tasks.append(fetch_wiki_photo_fast(a["name"] + " " + city))
-    if missing_tasks:
-        results = await asyncio.gather(*missing_tasks, return_exceptions=True)
-        idx = 0
-        for a in top_for_photos:
-            if not a.get("photo") and idx < len(results):
-                if isinstance(results[idx], str) and results[idx]:
-                    a["photo"] = results[idx]
-                    a["photos"] = [results[idx]]
-                idx += 1
-    
-    # Cache results
-    _attraction_cache[city_lower] = attractions
+    # Apply CC placeholder images by category
+    for a in attractions:
+        apply_placeholder_photo(a, a.get("type", "attraction"))
+
+    # Cache results with TTL
+    _attraction_cache[city_lower] = {
+        "timestamp": time.time(),
+        "data": attractions,
+    }
     
     print(f"  [{city}] Fetched {len(overpass_results)} Overpass + {len(otm_results)} OTM + {len(wiki_results)} Wiki = {len(attractions)} unique attractions")
     
@@ -1022,20 +1048,14 @@ async def get_nearby_places(lat: float, lon: float, radius: int = 5000, categori
     # Flat list for backward compatibility (top quality places first)
     flat_list = all_places[:30]
     
-    # Fetch photos for top results
+    # Apply CC placeholder photos for top results
     if flat_list:
-        photo_tasks = [fetch_wiki_photo_fast(p["name"]) for p in flat_list[:15]]
-        results = await asyncio.gather(*photo_tasks, return_exceptions=True)
-        for i, result in enumerate(results):
-            if i < len(flat_list) and isinstance(result, str) and result:
-                flat_list[i]["photo"] = result
-        # Also assign photos to categorized items
-        photo_map = {p["name"]: p.get("photo", "") for p in flat_list if p.get("photo")}
+        for p in flat_list:
+            apply_placeholder_photo(p, p.get("category", "attraction"))
         for cat in categorized:
             for p in categorized[cat]:
-                if p["name"] in photo_map:
-                    p["photo"] = photo_map[p["name"]]
-    
+                apply_placeholder_photo(p, p.get("category", "attraction"))
+
     return {"categorized": categorized, "all": flat_list, "total": len(all_places)}
 
 
@@ -1803,12 +1823,16 @@ class PaymentRequest(BaseModel):
     payment_method: str = "card"  # card, upi, wallet, net_banking
     card_last4: str = ""
     upi_id: str = ""
+    simulated: bool = False
 
 class BookingConfirmRequest(BaseModel):
     booking_type: str
     item_id: str
     trip_id: str = ""
     user_notes: str = ""
+
+class ResolveCityRequest(BaseModel):
+    place_name: str
 
 # ============================================
 # API Endpoints
@@ -2092,10 +2116,40 @@ async def generate_trip(request: TripRequest):
             dlat = math.radians(lat2 - lat1)
             dlon = math.radians(lon2 - lon1)
             a = math.sin(dlat/2)**2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon/2)**2
-            return R * 2 * math.asin(math.sqrt(a))
+            return R * 2 * math.asin(min(1, math.sqrt(a)))
+        
+        def _route_distance_km(route):
+            if len(route) < 2:
+                return 0.0
+            return sum(
+                _haversine_km(route[i].get("lat", 0), route[i].get("lon", 0),
+                              route[i + 1].get("lat", 0), route[i + 1].get("lon", 0))
+                for i in range(len(route) - 1)
+            )
+        
+        def _two_opt(route, max_passes=2):
+            if len(route) < 4:
+                return route
+            best = route
+            best_dist = _route_distance_km(best)
+            for _ in range(max_passes):
+                improved = False
+                for i in range(1, len(best) - 2):
+                    for j in range(i + 1, len(best) - 1):
+                        if j - i == 1:
+                            continue
+                        candidate = best[:]
+                        candidate[i:j] = reversed(best[i:j])
+                        cand_dist = _route_distance_km(candidate)
+                        if cand_dist + 0.01 < best_dist:
+                            best, best_dist = candidate, cand_dist
+                            improved = True
+                if not improved:
+                    break
+            return best
         
         def _nearest_neighbor_order(places):
-            """Nearest-neighbor TSP: reorder places so each next place is closest to current"""
+            """Nearest-neighbor + 2-opt: reorder places to minimize travel distance"""
             if len(places) <= 2:
                 return places
             ordered = [places[0]]
@@ -2112,7 +2166,7 @@ async def generate_trip(request: TripRequest):
                         nearest_dist = d
                         nearest_idx = idx
                 ordered.append(remaining.pop(nearest_idx))
-            return ordered
+            return _two_opt(ordered)
         
         sorted_attractions = sorted(attractions, key=lambda x: (-x.get("quality", 1), -x.get("rating", 0)))
         acts_per_day = max(3, min(5, len(sorted_attractions) // max(duration, 1)))
@@ -2229,24 +2283,10 @@ async def generate_trip(request: TripRequest):
                 if not act.get("photo"):
                     all_activities_for_photos.append(act)
         if all_activities_for_photos:
-            photo_tasks = []
             for act in all_activities_for_photos:
-                name = act.get("name", "")
-                queries = [name, f"{name} {city}"]
-                # If name has non-ASCII, also try English transliteration
-                ascii_name = name.encode("ascii", "ignore").decode().strip()
-                if ascii_name and ascii_name != name:
-                    queries.append(ascii_name)
-                photo_tasks.append(_try_multiple_wiki_queries(queries))
-            photo_results = await asyncio.gather(*photo_tasks, return_exceptions=True)
-            for idx_p, act in enumerate(all_activities_for_photos):
-                if idx_p < len(photo_results):
-                    result = photo_results[idx_p]
-                    if isinstance(result, str) and result:
-                        act["photo"] = result
-                        act["photos"] = [result]
+                apply_placeholder_photo(act, act.get("type", "attraction"))
             photos_loaded_count = sum(1 for d in days for a in d["activities"] if a.get("photo"))
-            await agent_manager.broadcast_json({"type": "agent_activity", "agent_id": "planner", "message": f"Loaded {photos_loaded_count} Wikipedia photos for activities", "status": "working"})
+            await agent_manager.broadcast_json({"type": "agent_activity", "agent_id": "planner", "message": f"Applied {photos_loaded_count} CC placeholder images for activities", "status": "working"})
         
         # ---- MCTS optimisation pass ----
         base_itin = {"days": days, "total_cost": total_cost, "cities": [city]}
@@ -2354,7 +2394,9 @@ async def generate_trip(request: TripRequest):
                 "elapsed_seconds": elapsed,
                 "attractions_count": len(attractions),
                 "photos_loaded": sum(1 for d in days for a in d["activities"] if a.get("photo")),
-                "source": "api_merged (Overpass + OpenTripMap + Wikipedia)"
+                "source": "api_merged (Overpass + OpenTripMap + Wikipedia)",
+                "photo_disclaimer": "Photos are Creative Commons placeholders; some places may have no photo.",
+                "pricing_disclaimer": "Booking prices are not live. Compare current rates on provider links."
             }
         }
     except Exception as e:
@@ -2595,14 +2637,14 @@ def _parse_duration(ds: str) -> float:
 # ============================================
 # AGENTIC BOOKING SYSTEM — In-memory stores
 # ============================================
-import uuid as _uuid
+import secrets
 
 _booking_history: List[Dict] = []
 _trip_sessions: Dict[str, Dict] = {}  # trip_id -> session state
 _workflow_states: Dict[str, Dict] = {}  # trip_id -> workflow state machine
 
 def _gen_id(prefix: str = "BK") -> str:
-    return f"{prefix}-{_uuid.uuid4().hex[:8].upper()}"
+    return f"{prefix}-{secrets.token_hex(6).upper()}"
 
 def _price_jitter(base: float, low: float = 0.8, high: float = 1.3) -> float:
     return round(base * (low + random.random() * (high - low)), -1)
@@ -2878,7 +2920,8 @@ async def _search_flights(req: FlightSearchRequest) -> List[Dict]:
             "duration": f"{dur_h}h {dur_m}m",
             "stops": stops,
             "stop_info": "" if stops == 0 else ["via Mumbai", "via Delhi", "via Bangalore", "via Hyderabad"][(route_seed + i) % 4],
-            "price": price,
+            "price_label": "Compare on provider",
+            "price_note": "Live fares are shown on the provider site",
             "cabin_class": req.cabin_class,
             "seats_left": 4 + abs(hash(f"{airline['code']}{dep}")) % 25,
             "baggage": "15 kg" if req.cabin_class == "economy" else "30 kg",
@@ -2888,7 +2931,7 @@ async def _search_flights(req: FlightSearchRequest) -> List[Dict]:
             "booking_url": booking_urls["google_flights"],
             "booking_urls": booking_urls,
         })
-    flights.sort(key=lambda f: f["price"])
+    flights.sort(key=lambda f: (f.get("rating", 0), f.get("seats_left", 0)), reverse=True)
     return flights
 
 # ---------- Hotel search ----------
@@ -2898,40 +2941,40 @@ async def _search_hotels(req: HotelSearchRequest) -> List[Dict]:
     
     hotel_chains = [
         {"name": "OYO Rooms", "tier": 2, "base": 800,
-         "photo": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e1/OYO_Rooms_%28logo%29.png/220px-OYO_Rooms_%28logo%29.png",
+         "photo": PHOTO_PLACEHOLDERS.get("hotel"),
          "booking_tpl": f"https://www.oyorooms.com/search?location={dest_enc}"},
         {"name": "Treebo Hotels", "tier": 2, "base": 1200,
-         "photo": "https://upload.wikimedia.org/wikipedia/commons/thumb/2/24/Treebo_Hotels_Logo_-_New.png/220px-Treebo_Hotels_Logo_-_New.png",
+         "photo": PHOTO_PLACEHOLDERS.get("hotel"),
          "booking_tpl": f"https://www.treebo.com/hotels-in-{req.destination.lower().replace(' ', '-')}/"},
         {"name": "FabHotel", "tier": 2, "base": 1000,
-         "photo": "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f7/FabHotels_logo.png/220px-FabHotels_logo.png",
+         "photo": PHOTO_PLACEHOLDERS.get("hotel"),
          "booking_tpl": f"https://www.fabhotels.com/hotels-in-{req.destination.lower().replace(' ', '-')}"},
         {"name": "Lemon Tree", "tier": 3, "base": 2500,
-         "photo": "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d2/Lemon_Tree_Hotels_logo.svg/220px-Lemon_Tree_Hotels_logo.svg.png",
+         "photo": PHOTO_PLACEHOLDERS.get("hotel"),
          "booking_tpl": f"https://www.lemontreehotels.com/search?city={dest_enc}"},
         {"name": "Radisson", "tier": 4, "base": 5000,
-         "photo": "https://upload.wikimedia.org/wikipedia/commons/thumb/4/4b/Radisson_logo.svg/220px-Radisson_logo.svg.png",
+         "photo": PHOTO_PLACEHOLDERS.get("hotel"),
          "booking_tpl": f"https://www.radissonhotels.com/en-us/search?searchTerm={dest_enc}"},
         {"name": "ITC Hotels", "tier": 5, "base": 8000,
-         "photo": "https://upload.wikimedia.org/wikipedia/commons/thumb/0/0a/ITC_Hotels.svg/220px-ITC_Hotels.svg.png",
+         "photo": PHOTO_PLACEHOLDERS.get("hotel"),
          "booking_tpl": f"https://www.itchotels.com/in/en/search?destination={dest_enc}"},
         {"name": "Taj Hotels", "tier": 5, "base": 12000,
-         "photo": "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5c/Taj_Hotels_logo.svg/220px-Taj_Hotels_logo.svg.png",
+         "photo": PHOTO_PLACEHOLDERS.get("hotel"),
          "booking_tpl": f"https://www.tajhotels.com/en-in/search/hotels/?destination={dest_enc}"},
         {"name": "The Oberoi", "tier": 5, "base": 15000,
-         "photo": "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5a/EIH_Limited_%28The_Oberoi_Group%29_logo.svg/220px-EIH_Limited_%28The_Oberoi_Group%29_logo.svg.png",
+         "photo": PHOTO_PLACEHOLDERS.get("hotel"),
          "booking_tpl": f"https://www.oberoihotels.com/find-a-hotel/?q={dest_enc}"},
         {"name": "Marriott", "tier": 4, "base": 7000,
-         "photo": "https://upload.wikimedia.org/wikipedia/commons/thumb/4/45/Marriott-Logo.svg/220px-Marriott-Logo.svg.png",
+         "photo": PHOTO_PLACEHOLDERS.get("hotel"),
          "booking_tpl": f"https://www.marriott.com/search/default.mi?destinationAddress={dest_enc}"},
         {"name": "Hyatt", "tier": 4, "base": 6500,
-         "photo": "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f0/Hyatt_Logo.svg/220px-Hyatt_Logo.svg.png",
+         "photo": PHOTO_PLACEHOLDERS.get("hotel"),
          "booking_tpl": f"https://www.hyatt.com/explore-hotels?location={dest_enc}"},
         {"name": "Holiday Inn", "tier": 3, "base": 3500,
-         "photo": "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f8/Holiday_Inn_Logo.svg/220px-Holiday_Inn_Logo.svg.png",
+         "photo": PHOTO_PLACEHOLDERS.get("hotel"),
          "booking_tpl": f"https://www.ihg.com/holidayinn/hotels/search?destination={dest_enc}"},
         {"name": "ibis", "tier": 2, "base": 2000,
-         "photo": "https://upload.wikimedia.org/wikipedia/commons/thumb/6/6e/Ibis_Hotel_2012_logo.svg/220px-Ibis_Hotel_2012_logo.svg.png",
+         "photo": PHOTO_PLACEHOLDERS.get("hotel"),
          "booking_tpl": f"https://all.accor.com/ibis/search?destination={dest_enc}"},
     ]
     if req.persona == "luxury":
@@ -2959,9 +3002,6 @@ async def _search_hotels(req: HotelSearchRequest) -> List[Dict]:
             nights = max(1, (d2 - d1).days)
         except:
             pass
-        # Deterministic price per night based on hotel + destination hash
-        ppn_mult = [0.85, 0.95, 1.0, 1.1, 1.2, 0.9][(dest_seed + idx) % 6]
-        ppn = round(h["base"] * ppn_mult, -1)
         stars = h["tier"]
         n_amenities = min(len(amenity_pool), stars + 3)
         
@@ -2981,8 +3021,8 @@ async def _search_hotels(req: HotelSearchRequest) -> List[Dict]:
             "id": _gen_id("HT"),
             "name": f'{h["name"]} {req.destination}',
             "stars": stars,
-            "price_per_night": ppn,
-            "total_price": ppn * nights,
+            "price_label": "Compare on provider",
+            "price_note": "Live rates are shown on provider sites",
             "nights": nights,
             "check_in": req.check_in,
             "check_out": req.check_out,
@@ -2993,11 +3033,13 @@ async def _search_hotels(req: HotelSearchRequest) -> List[Dict]:
             "free_cancellation": idx % 3 != 2,
             "pay_at_hotel": idx % 2 == 0,
             "distance_center": f"{round(0.5 + (dest_seed + idx * 7) % 75 / 10, 1)} km from center",
-            "photo": h.get("photo", ""),
+            "photo": PHOTO_PLACEHOLDERS.get("hotel"),
+            "photo_is_placeholder": True,
+            "photo_credit": PHOTO_PLACEHOLDER_CREDIT,
             "booking_url": h.get("booking_tpl", f"https://www.booking.com/searchresults.html?ss={dest_safe}"),
             "booking_urls": hotel_booking_urls,
         })
-    hotels.sort(key=lambda h: h["price_per_night"])
+    hotels.sort(key=lambda h: h.get("rating", 0), reverse=True)
     return hotels
 
 # ---------- Cab search ----------
@@ -3027,7 +3069,6 @@ async def _search_cabs(req: CabSearchRequest) -> List[Dict]:
     for idx, c in enumerate(pool):
         # Deterministic km estimate: ~25 km per hour of city driving
         est_km = req.duration_hours * 25
-        est_price = round(c["base"] * req.duration_hours + c["per_km"] * est_km * 0.3, -1)
         
         # Standard features by provider type
         all_features = ["AC", "GPS", "Music system", "Water bottle", "Charger", "Child seat"]
@@ -3038,7 +3079,8 @@ async def _search_cabs(req: CabSearchRequest) -> List[Dict]:
             "provider": c["provider"],
             "icon": c["icon"],
             "cab_type": req.cab_type,
-            "estimated_price": est_price,
+            "price_label": "Compare on provider",
+            "price_note": "Live fares are shown on provider sites",
             "duration_hours": req.duration_hours,
             "estimated_km": est_km,
             "per_km_rate": c["per_km"],
@@ -3049,7 +3091,7 @@ async def _search_cabs(req: CabSearchRequest) -> List[Dict]:
             "booking_url": _get_cab_booking_url(c["provider"], req.destination or ""),
             "booking_urls": _get_cab_booking_urls(req.destination or ""),
         })
-    cabs.sort(key=lambda c: c["estimated_price"])
+    cabs.sort(key=lambda c: c.get("driver_rating", 0), reverse=True)
     return cabs
 
 def _get_cab_booking_url(provider: str, dest: str) -> str:
@@ -3254,8 +3296,8 @@ async def _search_trains(req: TrainSearchRequest) -> List[Dict]:
             "day_of_arrival": "+1" if dep_h + dur_h >= 24 else "Same day",
             "train_class": req.train_class,
             "available_classes": avail_classes,
-            "price": price,
-            "price_per_person": round(price / req.passengers),
+            "price_label": "Compare on provider",
+            "price_note": "Live fares are shown on provider sites",
             "availability": availability,
             "pantry": train["speed"] == "fast",
             "stops": stops,
@@ -3266,7 +3308,7 @@ async def _search_trains(req: TrainSearchRequest) -> List[Dict]:
             "booking_urls": booking_urls,
         })
     
-    trains.sort(key=lambda t: t["price"])
+    trains.sort(key=lambda t: t.get("rating", 0), reverse=True)
     return trains
 
 def _quote_safe(s: str) -> str:
@@ -3275,6 +3317,20 @@ def _quote_safe(s: str) -> str:
 # ---------- Payment processing (simulated) ----------
 def _process_payment(req: PaymentRequest) -> Dict:
     txn_id = _gen_id("TXN")
+    simulated = req.simulated or req.amount <= 0
+    if simulated:
+        return {
+            "transaction_id": txn_id,
+            "booking_id": req.booking_id,
+            "amount": req.amount,
+            "currency": req.currency,
+            "payment_method": req.payment_method,
+            "status": "success",
+            "message": "Simulated payment complete — finish checkout on provider sites",
+            "timestamp": datetime.now().isoformat(),
+            "receipt_url": f"#receipt/{txn_id}",
+            "simulated": True,
+        }
     success = abs(hash(req.booking_id)) % 20 != 0  # ~95% success rate, deterministic
     return {
         "transaction_id": txn_id,
@@ -3286,6 +3342,7 @@ def _process_payment(req: PaymentRequest) -> Dict:
         "message": "Payment processed successfully" if success else "Payment declined — please try again",
         "timestamp": datetime.now().isoformat(),
         "receipt_url": f"#receipt/{txn_id}" if success else "",
+        "simulated": False,
     }
 
 # ---------- Workflow state machine ----------
@@ -3316,14 +3373,9 @@ async def recommend_trip(request: RecommendRequest):
     
     recommendations = recommend_destinations(request)
     
-    # Fetch photos for top recommendations in parallel
-    photo_tasks = [fetch_wiki_photo_fast(r["name"]) for r in recommendations[:5]]
-    photos = await asyncio.gather(*photo_tasks, return_exceptions=True)
-    for i, photo in enumerate(photos):
-        if i < len(recommendations) and isinstance(photo, str) and photo:
-            recommendations[i]["photo"] = photo
-        elif i < len(recommendations):
-            recommendations[i]["photo"] = ""
+    # Apply CC placeholder photos for recommendations
+    for rec in recommendations:
+        apply_placeholder_photo(rec, "attraction")
     
     elapsed = round(time.time() - start_time, 2)
     
@@ -3649,16 +3701,9 @@ async def plan_half_day(request: HalfDayPlanRequest):
             total_hours += 1
             total_cost += plan_activities[-1]["cost"]
     
-    # Fetch photos for plan items that don't have one
-    if plan_activities:
-        photo_tasks = [fetch_wiki_photo_fast(a["name"]) for a in plan_activities if not a.get("photo")]
-        photos = await asyncio.gather(*photo_tasks, return_exceptions=True)
-        photo_idx = 0
-        for a in plan_activities:
-            if not a.get("photo") and photo_idx < len(photos):
-                if isinstance(photos[photo_idx], str) and photos[photo_idx]:
-                    a["photo"] = photos[photo_idx]
-                photo_idx += 1
+    # Apply CC placeholder photos for plan items
+    for a in plan_activities:
+        apply_placeholder_photo(a, a.get("type", "attraction"))
     
     elapsed = round(time.time() - start_time, 2)
     
@@ -3693,6 +3738,12 @@ async def plan_half_day(request: HalfDayPlanRequest):
     }
 
 
+@app.post("/agentic/resolve-city")
+async def resolve_booking_city(req: ResolveCityRequest):
+    """Resolve a specific place or campus to its nearest booking city."""
+    city = extract_nearest_city(req.place_name)
+    return {"success": True, "city": city}
+
 @app.post("/agentic/flights/search")
 async def search_flights(req: FlightSearchRequest):
     """Agent-driven flight search"""
@@ -3709,7 +3760,8 @@ async def search_flights(req: FlightSearchRequest):
         "flights": flights,
         "count": len(flights),
         "search_params": {"origin": req.origin, "destination": req.destination, "date": req.departure_date, "class": req.cabin_class},
-        "agent_message": f"Found {len(flights)} flights to {req.destination}. Best price: ₹{flights[0]['price']:,.0f} ({flights[0]['airline']})" if flights else "No flights found",
+        "agent_message": f"Found {len(flights)} flight options to {req.destination}. Compare live prices on the provider links." if flights else "No flights found",
+        "pricing_disclaimer": "Prices are not live. Compare current rates on provider links.",
         "elapsed_seconds": elapsed,
         "next_step": "choose_hotels",
         "next_prompt": f"Great! I found {len(flights)} flight options. Select one, or I can search hotels for {req.destination} next.",
@@ -3724,15 +3776,15 @@ async def search_hotels(req: HotelSearchRequest):
     elapsed = round(time.time() - start_time, 2)
     trip_id = _gen_id("TRIP")
     _trip_sessions[trip_id] = {"destination": req.destination, "hotels": hotels, "created": datetime.now().isoformat()}
-    cheapest = min(hotels, key=lambda h: h["price_per_night"]) if hotels else None
-    best = max(hotels, key=lambda h: h["rating"]) if hotels else None
+    best = max(hotels, key=lambda h: h.get("rating", 0)) if hotels else None
     return {
         "success": True,
         "trip_id": trip_id,
         "hotels": hotels,
         "count": len(hotels),
         "search_params": {"destination": req.destination, "check_in": req.check_in, "check_out": req.check_out},
-        "agent_message": f"Found {len(hotels)} hotels. Best value: {cheapest['name']} at ₹{cheapest['price_per_night']:,.0f}/night. Top rated: {best['name']} ({best['rating']}⭐)" if hotels else "No hotels found",
+        "agent_message": f"Found {len(hotels)} hotel options. Compare live prices on provider links. Top rated: {best['name']} ({best['rating']}⭐)." if best else "No hotels found",
+        "pricing_disclaimer": "Prices are not live. Compare current rates on provider links.",
         "elapsed_seconds": elapsed,
         "next_step": "choose_cabs",
         "next_prompt": f"Hotel options ready! Pick your stay, then I'll find local transport.",
@@ -3750,7 +3802,8 @@ async def search_cabs(req: CabSearchRequest):
         "cabs": cabs,
         "count": len(cabs),
         "search_params": {"destination": req.destination, "type": req.cab_type, "hours": req.duration_hours},
-        "agent_message": f"Found {len(cabs)} cab options. Cheapest: {cabs[0]['provider']} at ₹{cabs[0]['estimated_price']:,.0f}" if cabs else "No cabs found",
+        "agent_message": f"Found {len(cabs)} cab options. Compare live fares on provider links." if cabs else "No cabs found",
+        "pricing_disclaimer": "Prices are not live. Compare current rates on provider links.",
         "elapsed_seconds": elapsed,
         "next_step": "review_cart",
         "next_prompt": "Transport sorted! Ready to review your complete booking?",
@@ -3773,7 +3826,8 @@ async def search_trains(req: TrainSearchRequest):
             "date": req.departure_date, "class": req.train_class,
             "passengers": req.passengers
         },
-        "agent_message": f"Found {len(trains)} trains. Cheapest: {cheapest['train_name']} at ₹{cheapest['price']:,.0f} ({cheapest['train_class']})" if cheapest else "No trains found on this route",
+        "agent_message": f"Found {len(trains)} trains. Compare live fares on provider links." if cheapest else "No trains found on this route",
+        "pricing_disclaimer": "Prices are not live. Compare current rates on provider links.",
         "elapsed_seconds": elapsed,
         "next_step": "choose_hotels",
         "next_prompt": "Great train options! Now let's find you a place to stay.",
@@ -3798,19 +3852,21 @@ async def confirm_booking(req: BookingConfirmRequest):
 @app.post("/agentic/payment/process")
 async def process_payment(req: PaymentRequest):
     """Process payment for a booking"""
-    await agent_manager.broadcast("budget", f"Processing ₹{req.amount:,.0f} payment via {req.payment_method}")
+    amount_label = f"₹{req.amount:,.0f}" if req.amount > 0 else "a simulated amount"
+    await agent_manager.broadcast("budget", f"Processing {amount_label} payment via {req.payment_method}")
     result = _process_payment(req)
     if result["status"] == "success":
+        status_label = "simulated" if result.get("simulated") else "success"
         _booking_history.append({
             "id": result["transaction_id"],
             "type": "payment",
             "booking_id": req.booking_id,
             "amount": req.amount,
             "method": req.payment_method,
-            "status": "success",
+            "status": status_label,
             "timestamp": result["timestamp"],
         })
-        await agent_manager.broadcast("budget", f"Payment of ₹{req.amount:,.0f} successful! Ref: {result['transaction_id']}")
+        await agent_manager.broadcast("budget", f"Payment of {amount_label} successful! Ref: {result['transaction_id']}")
     return {"success": result["status"] == "success", "payment": result}
 
 @app.get("/agentic/history")
@@ -3820,7 +3876,11 @@ async def get_booking_history():
         "success": True,
         "history": list(reversed(_booking_history)),
         "count": len(_booking_history),
-        "total_spent": sum(b.get("amount", 0) for b in _booking_history if b.get("type") == "payment" and b.get("status") == "success"),
+        "total_spent": sum(
+            b.get("amount", 0)
+            for b in _booking_history
+            if b.get("type") == "payment" and b.get("status") == "success" and b.get("amount", 0) > 0
+        ),
     }
 
 @app.get("/agentic/workflow-steps")

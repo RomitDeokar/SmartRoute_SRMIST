@@ -59,83 +59,75 @@ const CITY_COORDS = {
 };
 
 // ============================================
-// REAL PHOTO FETCHER (Wikipedia + Wikimedia)
+// PHOTO PLACEHOLDERS (Creative Commons)
 // ============================================
-const _photoCache = new Map();
+const PHOTO_PLACEHOLDERS = {
+    attraction: 'https://sspark.genspark.ai/cfimages?u1=R%2BZY3Tx3vEYhkOm1j2x8pLeov%2BynIZ4OzXHdQ9omdnhjWQtPz%2B1hHpbmU3ScEi4ACuIpA1N3PxFO3rxpooFh3HAP7Ii8OKmU6xst6HfkReVDvaZQkLFjlSLr%2Bx2pyNiFW5PpZX%2B28EP0LVP5mRQ%3D&u2=aRrADDNkh%2BA5lVUD&width=2560',
+    landmark: 'https://sspark.genspark.ai/cfimages?u1=R%2BZY3Tx3vEYhkOm1j2x8pLeov%2BynIZ4OzXHdQ9omdnhjWQtPz%2B1hHpbmU3ScEi4ACuIpA1N3PxFO3rxpooFh3HAP7Ii8OKmU6xst6HfkReVDvaZQkLFjlSLr%2Bx2pyNiFW5PpZX%2B28EP0LVP5mRQ%3D&u2=aRrADDNkh%2BA5lVUD&width=2560',
+    museum: 'https://sspark.genspark.ai/cfimages?u1=6bL718YIIIyfZnO9wqTs9Zmt9CsrFiWXz8rmfLhW9ODp6Oi1z%2BED%2FbVbOTAoY1gP%2FgeTV1VLBAeHovQkdDMO1KoWBXsKFYn0GINgFTnLd34fQRoi8eB%2F9IuVyBrWkX46p3cj%2FhDuxRDaKQnlZkjKtWI0&u2=P0gNi0cNTbvSH5wp&width=2560',
+    park: 'https://sspark.genspark.ai/cfimages?u1=wX%2BCquDhZTOE0eoEieWPRPaNj2%2BnzbtOzmxpp8WFGyO2i7oE7WtaakPc%2BrdgytmcdhL2G84%2Fu%2F8uH5pjOM5i%2BdEQglIW5SJ9qafY%2FXexHiTpNQ%3D%3D&u2=2nYGPh9KVCCwxLrD&width=2560',
+    beach: 'https://sspark.genspark.ai/cfimages?u1=X%2FmNtxmJV5SFnf43IPAGcosNv8RrnoQ7LEJK5NIVcX6lpdTXk%2Bbw5SYxP6w0yjArl0IpZazgm%2BmHwg6iqBDAhE2H62ahIpPJ%2F4ID3puMW8dtz6FWicO43OfjnDqnc%2F8n8svietGvQkvZBWanbDXkYAXz6PRfJ1U%3D&u2=%2BA11ndTEBbUWEONO&width=2560',
+    religious: 'https://sspark.genspark.ai/cfimages?u1=KDpzyu2XhHuxTEV8sfbrlR5gsS76yDnWxYYje2zefxRjfxUaA4n0cCnS%2BFsK%2BD%2BbbwPQCEep3fHZq7e%2BxFNxH5mGDRj%2FYjzvnegzRYB%2BmKTxgFTj8frZC9cBqjsnBYatepOkLg3jWJAEfLmUAupzA%2BNfV5QCSS3HXKF6%2FRfAo7jgMIL79sXzXmicPp5syo%2FbVyc%2Frakl8xgSbqjTHe5tKS6buPTzGd5nVyaFpZUVnsFUGUWDLewPZIXafsIkDRaQtaRav1KkiT4sWXRGXFt1d8h5xs1Iqw%3D%3D&u2=OBUQE%2F3j1TvKzRNs&width=2560',
+    market: 'https://sspark.genspark.ai/cfimages?u1=inECRwNEsP%2B5AEK86uiEQ5IVBino9qMxaz93SA0AMLSR%2BenhxFVB%2FjMxo%2Bcg7bT6sr%2BSGlh3E%2FLaDeyL5RCzO%2ByXp7a12xaKpNcJm39yg8R%2B3%2FV%2Bykin4yY0mIpeTYkUsQ%3D%3D&u2=Jzq3yFx83goQrwjQ&width=2560',
+    food: 'https://sspark.genspark.ai/cfimages?u1=inECRwNEsP%2B5AEK86uiEQ5IVBino9qMxaz93SA0AMLSR%2BenhxFVB%2FjMxo%2Bcg7bT6sr%2BSGlh3E%2FLaDeyL5RCzO%2ByXp7a12xaKpNcJm39yg8R%2B3%2FV%2Bykin4yY0mIpeTYkUsQ%3D%3D&u2=Jzq3yFx83goQrwjQ&width=2560',
+    hotel: 'https://sspark.genspark.ai/cfimages?u1=sii7UsO8n7CZrviwuPn4FC%2B3rzIP61dafR2pzlB1uoakPvBtx3fvnseDgglH6anlYPvexPZdlxnU45yPlxxkpEaoDXVHx6Z1JnrA8RynPDmSDVJTUHqSG9JpKuOHlQ%3D%3D&u2=u8srVTPo3t1HgrQa&width=2560',
+    transport: 'https://sspark.genspark.ai/cfimages?u1=sWq%2BOExuKgpkCtgaT9tcHlzNyhCsVzC2lS6s59llKVZSqnKnD2dJrg%2B%2BSG7zavFvPsb9UVpgiw3ffegUKH7aJfayU8U%2B5V4Ysx8vIK18iIo%2BXo1XtRmL2i1HBax1iuXDhmlynJ6m9AkUFX68%2Bv9o%2FlkeBGJOpR3Ll1M8j70%3D&u2=UO7WYGQok6WUsISo&width=2560'
+};
 
-async function fetchWikipediaPhoto(placeName, city = '') {
-    const cacheKey = `${placeName}|${city}`;
-    if (_photoCache.has(cacheKey)) return _photoCache.get(cacheKey);
+const PLACEHOLDER_TYPE_MAP = {
+    museum: 'museum',
+    gallery: 'museum',
+    park: 'park',
+    garden: 'park',
+    nature: 'park',
+    nature_reserve: 'park',
+    beach: 'beach',
+    viewpoint: 'beach',
+    religious: 'religious',
+    temple: 'religious',
+    church: 'religious',
+    mosque: 'religious',
+    market: 'market',
+    shopping: 'market',
+    food: 'food',
+    restaurant: 'food',
+    cafe: 'food',
+    historic: 'landmark',
+    fort: 'landmark',
+    palace: 'landmark',
+    monument: 'landmark',
+    architecture: 'landmark',
+    landmark: 'landmark',
+    attraction: 'attraction',
+    hotel: 'hotel',
+    train: 'transport',
+    station: 'transport',
+    transport: 'transport'
+};
 
-    const queries = [placeName];
-    if (city && !placeName.toLowerCase().includes(city.toLowerCase())) {
-        queries.push(`${placeName}, ${city}`);
-    }
-    for (const q of queries) {
-        try {
-            const resp = await fetch(`https://en.wikipedia.org/w/api.php?action=query&format=json&origin=*&titles=${encodeURIComponent(q)}&prop=pageimages&piprop=original|thumbnail&pithumbsize=800`);
-            if (!resp.ok) continue;
-            const data = await resp.json();
-            const pages = data?.query?.pages || {};
-            for (const page of Object.values(pages)) {
-                if (parseInt(page.pageid) < 0) continue;
-                const url = page?.thumbnail?.source || page?.original?.source;
-                if (url && !url.includes('.svg') && !url.includes('Flag_of') && !url.includes('Coat_of_arms')) {
-                    _photoCache.set(cacheKey, url);
-                    return url;
-                }
-            }
-        } catch (e) { /* continue */ }
-    }
-    _photoCache.set(cacheKey, null);
-    return null;
+function getPlaceholderPhoto(type) {
+    const key = PLACEHOLDER_TYPE_MAP[(type || '').toLowerCase()] || '';
+    return PHOTO_PLACEHOLDERS[key] || '';
 }
 
-async function getRealPhoto(placeName, city, fallbackUrl) {
-    if (fallbackUrl && (fallbackUrl.includes('wikipedia.org') || fallbackUrl.includes('wikimedia.org'))) {
-        return fallbackUrl;
+function applyPlaceholderToActivity(act) {
+    if (!act || act.photo) return;
+    const placeholder = getPlaceholderPhoto(act.type || 'attraction');
+    if (placeholder) {
+        act.photo = placeholder;
+        act.photos = [placeholder];
+        act.photo_is_placeholder = true;
     }
-    const wikiPhoto = await fetchWikipediaPhoto(placeName, city);
-    if (wikiPhoto) return wikiPhoto;
-    if (fallbackUrl && !fallbackUrl.includes('pexels-photo-') && !fallbackUrl.includes('source.unsplash.com')) {
-        return fallbackUrl;
-    }
-    try {
-        const resp = await fetch(`https://commons.wikimedia.org/w/api.php?action=query&format=json&origin=*&generator=search&gsrsearch=${encodeURIComponent(placeName + ' ' + city)}&gsrlimit=3&gsrnamespace=6&prop=imageinfo&iiprop=url|mime&iiurlwidth=800`);
-        if (resp.ok) {
-            const data = await resp.json();
-            const pages = data?.query?.pages || {};
-            for (const page of Object.values(pages)) {
-                const info = page?.imageinfo?.[0];
-                if (info?.mime?.includes('image') && !info.mime.includes('svg')) {
-                    const url = info.thumburl || info.url;
-                    if (url && !url.includes('.svg') && !url.includes('Flag_of')) return url;
-                }
-            }
-        }
-    } catch (e) { /* fallback */ }
-    return fallbackUrl || '';
 }
 
-async function fixItineraryPhotos(itinerary, dest) {
+function fixItineraryPhotos(itinerary) {
     if (!itinerary?.days) return;
-    const allActivities = [];
     itinerary.days.forEach(day => {
-        (day.activities || []).forEach(act => allActivities.push(act));
+        (day.activities || []).forEach(act => {
+            applyPlaceholderToActivity(act);
+            if (act.media && act.photo) act.media.photos = [act.photo];
+        });
     });
-    const needsFix = allActivities.filter(act => {
-        const photos = act.photos || [];
-        return !photos.length || photos.every(p => !p || p.includes('pexels-photo-') || p.includes('source.unsplash.com'));
-    });
-    if (!needsFix.length) return;
-    await Promise.allSettled(needsFix.map(async act => {
-        const url = await getRealPhoto(act.name, dest, (act.photos || [])[0] || '');
-        if (url) {
-            act.photo = url;
-            act.photos = [url];
-            if (act.media) act.media.photos = [url];
-        }
-    }));
 }
 
 // ============================================
@@ -316,6 +308,7 @@ function connectWebSocket() {
         state.ws = new WebSocket(wsUrl);
         state.ws.onopen = () => { _wsRetries = 0; console.log('WebSocket connected'); };
         state.ws.onmessage = e => {
+            _wsRetries = 0;
             try {
                 const d = JSON.parse(e.data);
                 if (d.type === 'agent_activity') {
@@ -795,8 +788,8 @@ async function processTrip(data, dest, duration, budget) {
         state.dirichletData = data.ai.dirichlet;
     }
 
-    // Fix photos asynchronously
-    await fixItineraryPhotos(state.itinerary, dest);
+    // Apply CC placeholder photos
+    fixItineraryPhotos(state.itinerary);
 
     renderItinerary(state.itinerary, dest);
     updateMap(state.itinerary);
@@ -832,6 +825,10 @@ async function processTrip(data, dest, duration, budget) {
     
     const genTime = data?.metadata?.elapsed_seconds || 'fast';
     showToast(`Trip to ${dest} planned in ${genTime}s by 7 AI agents!`, 'success');
+}
+
+if (typeof window !== 'undefined') {
+    window.dispatchEvent(new Event('processTripReady'));
 }
 
 function renderMDPDecisionTrace(dest, budget, duration) {
@@ -1117,24 +1114,24 @@ function generateBookings(dest) {
     const endDate = ctx.endDate || '';
     return {
         hotels: [
-            { name: `Google Hotels — ${dest}`, rating: 4.7, price_per_night: 'Compare All', amenities: ['All Hotels', 'Price Compare'], photo: '', booking_url: `https://www.google.com/travel/hotels/${e}?dates=${startDate},${endDate}`, platform: 'google' },
-            { name: `Booking.com — ${dest}`, rating: 4.5, price_per_night: 'Browse', amenities: ['WiFi', 'Free Cancel'], photo: '', booking_url: `https://www.booking.com/searchresults.html?ss=${e}&checkin=${startDate}&checkout=${endDate}`, platform: 'booking' },
-            { name: `MakeMyTrip Hotels`, rating: 4.3, price_per_night: 'Browse', amenities: ['Best Deals', 'EMI Options'], photo: '', booking_url: `https://www.makemytrip.com/hotels/hotel-listing/?city=${e}&checkin=${startDate}&checkout=${endDate}`, platform: 'makemytrip' },
-            { name: `Goibibo — ${dest}`, rating: 4.2, price_per_night: 'Browse', amenities: ['Deals', 'Price Match'], photo: '', booking_url: `https://www.goibibo.com/hotels/hotels-in-${slug}/`, platform: 'goibibo' },
-            { name: `Ixigo Hotels — ${dest}`, rating: 4.3, price_per_night: 'Compare', amenities: ['Budget Picks', 'All Brands'], photo: '', booking_url: `https://www.ixigo.com/hotels/${slug}`, platform: 'ixigo' },
+            { name: `Google Hotels — ${dest}`, rating: 4.7, price_per_night: 'Compare on provider', amenities: ['All Hotels', 'Price Compare'], photo: '', booking_url: `https://www.google.com/travel/hotels/${e}?dates=${startDate},${endDate}`, platform: 'google' },
+            { name: `Booking.com — ${dest}`, rating: 4.5, price_per_night: 'Compare on provider', amenities: ['WiFi', 'Free Cancel'], photo: '', booking_url: `https://www.booking.com/searchresults.html?ss=${e}&checkin=${startDate}&checkout=${endDate}`, platform: 'booking' },
+            { name: `MakeMyTrip Hotels`, rating: 4.3, price_per_night: 'Compare on provider', amenities: ['Best Deals', 'EMI Options'], photo: '', booking_url: `https://www.makemytrip.com/hotels/hotel-listing/?city=${e}&checkin=${startDate}&checkout=${endDate}`, platform: 'makemytrip' },
+            { name: `Goibibo — ${dest}`, rating: 4.2, price_per_night: 'Compare on provider', amenities: ['Deals', 'Price Match'], photo: '', booking_url: `https://www.goibibo.com/hotels/hotels-in-${slug}/`, platform: 'goibibo' },
+            { name: `Ixigo Hotels — ${dest}`, rating: 4.3, price_per_night: 'Compare on provider', amenities: ['Budget Picks', 'All Brands'], photo: '', booking_url: `https://www.ixigo.com/hotels/${slug}`, platform: 'ixigo' },
         ],
         flights: [
-            { airline: 'Google Flights', price: 'Compare', departure: origin || 'Any', arrival: dest, duration: 'Best Price', booking_url: `https://www.google.com/travel/flights?q=flights+from+${originEnc}+to+${e}+on+${startDate}`, platform: 'google' },
-            { airline: 'Skyscanner', price: 'Compare', departure: 'Flexible', arrival: 'Multi-airline', duration: 'Cheapest', booking_url: `https://www.skyscanner.co.in/transport/flights-to/${slug}/`, platform: 'skyscanner' },
-            { airline: 'MakeMyTrip Flights', price: 'Compare', departure: origin || 'Any', arrival: dest, duration: 'All Airlines', booking_url: `https://www.makemytrip.com/flight/search?itinerary=${originEnc}-${e}-${startDate}&tripType=O&paxType=A-1_C-0_I-0&cabinClass=E`, platform: 'makemytrip' },
-            { airline: 'Cleartrip', price: 'Compare', departure: origin || 'Any', arrival: dest, duration: 'Best Deals', booking_url: `https://www.cleartrip.com/flights/${origin ? originSlug + '-to-' : ''}${slug}-${startDate}/`, platform: 'cleartrip' },
-            { airline: 'Ixigo Flights', price: 'Compare', departure: origin || 'Any', arrival: dest, duration: 'Cheapest', booking_url: `https://www.ixigo.com/search/result/flight?from=${originEnc}&to=${e}&date=${startDate}`, platform: 'ixigo' },
+            { airline: 'Google Flights', price: 'Compare on provider', departure: origin || 'Any', arrival: dest, duration: 'Best Price', booking_url: `https://www.google.com/travel/flights?q=flights+from+${originEnc}+to+${e}+on+${startDate}`, platform: 'google' },
+            { airline: 'Skyscanner', price: 'Compare on provider', departure: 'Flexible', arrival: 'Multi-airline', duration: 'Cheapest', booking_url: `https://www.skyscanner.co.in/transport/flights-to/${slug}/`, platform: 'skyscanner' },
+            { airline: 'MakeMyTrip Flights', price: 'Compare on provider', departure: origin || 'Any', arrival: dest, duration: 'All Airlines', booking_url: `https://www.makemytrip.com/flight/search?itinerary=${originEnc}-${e}-${startDate}&tripType=O&paxType=A-1_C-0_I-0&cabinClass=E`, platform: 'makemytrip' },
+            { airline: 'Cleartrip', price: 'Compare on provider', departure: origin || 'Any', arrival: dest, duration: 'Best Deals', booking_url: `https://www.cleartrip.com/flights/${origin ? originSlug + '-to-' : ''}${slug}-${startDate}/`, platform: 'cleartrip' },
+            { airline: 'Ixigo Flights', price: 'Compare on provider', departure: origin || 'Any', arrival: dest, duration: 'Cheapest', booking_url: `https://www.ixigo.com/search/result/flight?from=${originEnc}&to=${e}&date=${startDate}`, platform: 'ixigo' },
         ],
         trains: [
-            { name: 'IRCTC', price: 'Book Direct', features: ['Official', 'All Trains'], rating: 4.1, booking_url: 'https://www.irctc.co.in/nget/train-search', platform: 'irctc' },
-            { name: `Ixigo Trains — ${origin || 'Origin'} to ${dest}`, price: 'Compare', features: ['PNR Status', 'Seat Avail'], rating: 4.4, booking_url: `https://www.ixigo.com/trains/${originSlug || 'delhi'}-to-${slug}`, platform: 'ixigo' },
-            { name: 'MakeMyTrip Trains', price: 'Compare', features: ['Easy Booking', 'Compare'], rating: 4.0, booking_url: `https://www.makemytrip.com/railways/`, platform: 'makemytrip' },
-            { name: 'ConfirmTkt', price: 'Check', features: ['PNR Predict', 'Alternate'], rating: 4.2, booking_url: `https://www.confirmtkt.com/train-search`, platform: 'confirmtkt' },
+            { name: 'IRCTC', price: 'Compare on provider', features: ['Official', 'All Trains'], rating: 4.1, booking_url: 'https://www.irctc.co.in/nget/train-search', platform: 'irctc' },
+            { name: `Ixigo Trains — ${origin || 'Origin'} to ${dest}`, price: 'Compare on provider', features: ['PNR Status', 'Seat Avail'], rating: 4.4, booking_url: `https://www.ixigo.com/trains/${originSlug || 'delhi'}-to-${slug}`, platform: 'ixigo' },
+            { name: 'MakeMyTrip Trains', price: 'Compare on provider', features: ['Easy Booking', 'Compare'], rating: 4.0, booking_url: `https://www.makemytrip.com/railways/`, platform: 'makemytrip' },
+            { name: 'ConfirmTkt', price: 'Compare on provider', features: ['PNR Predict', 'Alternate'], rating: 4.2, booking_url: `https://www.confirmtkt.com/train-search`, platform: 'confirmtkt' },
         ],
         restaurants: [
             { name: `Zomato — ${dest}`, rating: 4.6, price_range: '\u20b9-\u20b9\u20b9\u20b9\u20b9', cuisine: 'All Cuisines', photo: '', booking_url: `https://www.zomato.com/${slug}/restaurants`, platform: 'zomato' },
@@ -1142,15 +1139,15 @@ function generateBookings(dest) {
             { name: `Swiggy — ${dest}`, rating: 4.4, price_range: '\u20b9-\u20b9\u20b9\u20b9', cuisine: 'Delivery + Dine', photo: '', booking_url: `https://www.swiggy.com/city/${slug}`, platform: 'swiggy' },
         ],
         cabs: [
-            { type: 'Uber', price: '\u20b9150-500/ride', features: ['AC', 'GPS', 'UPI Pay'], rating: 4.3, booking_url: 'https://m.uber.com/looking', platform: 'uber' },
-            { type: 'Ola Cabs', price: '\u20b9100-400/ride', features: ['AC', 'Multiple Options'], rating: 4.1, booking_url: 'https://www.olacabs.com/', platform: 'ola' },
-            { type: 'Rapido', price: '\u20b950-200/ride', features: ['Bike', 'Auto', 'Quick'], rating: 4.0, booking_url: 'https://www.rapido.bike/', platform: 'rapido' },
-            { type: 'Ixigo Cabs', price: '\u20b9100-450/ride', features: ['Compare', 'City Tours'], rating: 4.1, booking_url: `https://www.ixigo.com/cabs/${slug}`, platform: 'ixigo' },
+            { type: 'Uber', price: 'Compare on provider', features: ['AC', 'GPS', 'UPI Pay'], rating: 4.3, booking_url: 'https://m.uber.com/looking', platform: 'uber' },
+            { type: 'Ola Cabs', price: 'Compare on provider', features: ['AC', 'Multiple Options'], rating: 4.1, booking_url: 'https://www.olacabs.com/', platform: 'ola' },
+            { type: 'Rapido', price: 'Compare on provider', features: ['Bike', 'Auto', 'Quick'], rating: 4.0, booking_url: 'https://www.rapido.bike/', platform: 'rapido' },
+            { type: 'Ixigo Cabs', price: 'Compare on provider', features: ['Compare', 'City Tours'], rating: 4.1, booking_url: `https://www.ixigo.com/cabs/${slug}`, platform: 'ixigo' },
         ],
         buses: [
-            { name: `RedBus — ${origin || 'Origin'} to ${dest}`, price: 'From \u20b9300', features: ['AC/Non-AC', 'Sleeper'], rating: 4.3, booking_url: `https://www.redbus.in/bus-tickets/${originSlug || 'delhi'}-to-${slug}`, platform: 'redbus' },
-            { name: `Ixigo Buses`, price: 'Compare', features: ['All Operators', 'Live Track'], rating: 4.2, booking_url: `https://www.ixigo.com/bus/${originSlug || 'delhi'}-to-${slug}`, platform: 'ixigo' },
-            { name: 'MakeMyTrip Bus', price: 'Compare', features: ['Volvo', 'Mercedes'], rating: 4.0, booking_url: `https://www.makemytrip.com/bus-tickets/`, platform: 'makemytrip' },
+            { name: `RedBus — ${origin || 'Origin'} to ${dest}`, price: 'Compare on provider', features: ['AC/Non-AC', 'Sleeper'], rating: 4.3, booking_url: `https://www.redbus.in/bus-tickets/${originSlug || 'delhi'}-to-${slug}`, platform: 'redbus' },
+            { name: `Ixigo Buses`, price: 'Compare on provider', features: ['All Operators', 'Live Track'], rating: 4.2, booking_url: `https://www.ixigo.com/bus/${originSlug || 'delhi'}-to-${slug}`, platform: 'ixigo' },
+            { name: 'MakeMyTrip Bus', price: 'Compare on provider', features: ['Volvo', 'Mercedes'], rating: 4.0, booking_url: `https://www.makemytrip.com/bus-tickets/`, platform: 'makemytrip' },
         ]
     };
 }
@@ -1159,7 +1156,7 @@ function generateBookings(dest) {
 function renderItinerary(itin, dest) {
     const c = document.getElementById('itineraryContainer');
     if (!c || !itin?.days) return;
-    c.innerHTML = `<div class="section-title">📅 Your ${dest} Itinerary — AI Generated (All from APIs)</div>` + itin.days.map(day => {
+    c.innerHTML = `<div class="section-title">📅 Your ${dest} Itinerary — AI Generated (API attractions · CC placeholder photos)</div>` + itin.days.map(day => {
         const weatherBadge = day.weather ? `<span class="weather-badge" style="margin-left:8px;font-size:0.8rem">${day.weather.icon} ${Math.round(day.weather.temp_max)}°C ${day.weather.risk_level === 'high' ? '⚠️' : ''}</span>` : '';
         return `
     <div class="day-card">
@@ -1169,13 +1166,18 @@ function renderItinerary(itin, dest) {
       </div>
       ${day.activities.map((act, i) => {
         const photoUrl = act.photo || (act.photos?.[0]) || '';
-        const hasRealPhoto = photoUrl && (photoUrl.includes('wikipedia.org') || photoUrl.includes('wikimedia.org'));
+        const isPlaceholder = act.photo_is_placeholder || Object.values(PHOTO_PLACEHOLDERS).includes(photoUrl);
         const photoStyle = photoUrl ? `background-image:url('${photoUrl}');background-size:cover;background-position:center;` : '';
+        const photoBadge = isPlaceholder ? '<span class="photo-placeholder-badge">CC Placeholder</span>' : '';
         const weatherWarn = act.weather_warning ? `<div style="color:#f59e0b;font-size:0.78rem;margin-top:4px">${act.weather_warning}</div>` : '';
         const crowdTip = act.crowd_tip ? `<div style="color:#06b6d4;font-size:0.78rem;margin-top:4px">${act.crowd_tip}</div>` : '';
+        const noPhoto = `<div class="activity-photo activity-photo-missing" data-place="${act.name}" data-city="${dest}"><div class="activity-photo-overlay"></div><div class="no-photo-text">No photo available</div></div>`;
+        const photoHtml = photoUrl
+            ? `<div class="activity-photo" style="${photoStyle}" data-place="${act.name}" data-city="${dest}"><div class="activity-photo-overlay"></div>${photoBadge}</div>`
+            : noPhoto;
         return `
         <div class="activity-card" data-type="${act.type}">
-          ${photoUrl ? `<div class="activity-photo" style="${photoStyle}" data-place="${act.name}" data-city="${dest}"><div class="activity-photo-overlay"></div>${hasRealPhoto ? '<span class="photo-real-badge">Real Photo</span>' : ''}</div>` : `<div class="activity-photo activity-photo-placeholder" data-place="${act.name}" data-city="${dest}"><div class="activity-photo-overlay"></div><span style="position:relative;z-index:2;font-size:2rem">${{landmark:'🏛',museum:'🏛️',religious:'🛕',palace:'🏰',fort:'🏰',monument:'🗿',park:'🌳',market:'🛍️',historic:'🏛️',hidden_gem:'💎',architecture:'🏗️',shopping:'🛍️',viewpoint:'👁️'}[act.type] || '📍'}</span></div>`}
+          ${photoHtml}
           <div class="activity-content">
             <div class="activity-header">
               <span class="activity-name">${act.name}</span>
@@ -1203,22 +1205,7 @@ function renderItinerary(itin, dest) {
     </div>`;
     }).join('');
 
-    // Lazy-load missing photos
-    c.querySelectorAll('.activity-photo-placeholder').forEach(async el => {
-        const name = el.dataset.place;
-        const city = el.dataset.city;
-        if (name) {
-            const url = await getRealPhoto(name, city, '');
-            if (url) {
-                el.style.backgroundImage = `url('${url}')`;
-                el.style.backgroundSize = 'cover';
-                el.style.backgroundPosition = 'center';
-                el.classList.remove('activity-photo-placeholder');
-                const emoji = el.querySelector('span[style*="font-size:2rem"]');
-                if (emoji) emoji.style.display = 'none';
-            }
-        }
-    });
+    // Placeholder photos already applied; no dynamic fetching.
 }
 
 async function rateActivity(day, actIdx, stars) {
@@ -1292,7 +1279,10 @@ function renderBookings(dest) {
     const platformIcons = { google: 'fab fa-google', booking: 'fas fa-bed', makemytrip: 'fas fa-plane', skyscanner: 'fas fa-plane', zomato: 'fas fa-utensils', uber: 'fas fa-car', ola: 'fas fa-taxi', goibibo: 'fas fa-hotel', swiggy: 'fas fa-utensils', cleartrip: 'fas fa-plane', rapido: 'fas fa-motorcycle', ixigo: 'fas fa-search', irctc: 'fas fa-train', confirmtkt: 'fas fa-ticket-alt', redbus: 'fas fa-bus' };
     const platformColors = { google: '#4285f4', booking: '#003580', makemytrip: '#eb5b2d', skyscanner: '#0770e3', zomato: '#e23744', uber: '#000000', ola: '#35b44c', goibibo: '#ec5b24', swiggy: '#fc8019', cleartrip: '#e74c3c', rapido: '#ffc107', ixigo: '#f77728', irctc: '#1e3a5f', confirmtkt: '#2196f3', redbus: '#d84e55' };
 
+    const formatBookingPrice = (item) => item.price_label || 'Compare on provider';
+
     let html = `<div class="section-title">🎫 Booking Options</div>
+    <div class="booking-disclaimer">Prices are not live. Use provider links to compare current rates.</div>
     <div class="tabs" id="bookingTabs">
       <button class="tab active" onclick="switchBookingTab('hotels',this)">🏨 Hotels</button>
       <button class="tab" onclick="switchBookingTab('flights',this)">✈️ Flights</button>
@@ -1312,7 +1302,7 @@ function renderBookings(dest) {
               <div class="booking-card-body">
                 <div class="booking-card-title">${item.name || item.airline || item.type || ''}</div>
                 ${item.rating ? `<div class="booking-card-rating">⭐ ${item.rating}/5</div>` : ''}
-                <div class="booking-card-price">${item.price_per_night || item.price || item.price_range || ''}</div>
+                <div class="booking-card-price">${formatBookingPrice(item)}</div>
                 ${item.amenities ? `<div class="booking-card-amenities">${item.amenities.map(a => `<span class="amenity-tag">${a}</span>`).join('')}</div>` : ''}
                 ${item.features ? `<div class="booking-card-amenities">${item.features.map(f => `<span class="amenity-tag">${f}</span>`).join('')}</div>` : ''}
                 <a href="${item.booking_url}" target="_blank" rel="noopener" class="btn btn-primary booking-link">🔗 Search</a>
@@ -1398,42 +1388,43 @@ function renderWeather(dest, days, forecasts) {
 
 // === BUDGET (FIXED — uses real data from backend) ===
 function updateBudgetDisplay(itin, total) {
-    const activitiesCost = itin?.total_cost || 0;
+    const summary = itin?.budget_summary || {};
+    const activitiesCost = summary.activities_cost ?? itin?.total_cost ?? 0;
     
     // Use backend budget_breakdown if available
     const bd = itin?.budget_breakdown || {};
     
     // If backend provides breakdown, use it. Otherwise compute from actual itinerary costs.
-    const hasBackendData = bd.accommodation || bd.food || bd.transport || bd.activities;
+    const hasBackendData = summary.total_estimated_spend !== undefined || bd.accommodation || bd.food || bd.transport || bd.activities || bd.emergency;
     let breakdown;
     if (hasBackendData) {
         breakdown = {
             accommodation: bd.accommodation || 0,
             food: bd.food || 0,
-            activities: bd.activities || activitiesCost,
+            activities: bd.activities ?? activitiesCost,
             transport: bd.transport || 0,
             emergency: bd.emergency || 0,
         };
     } else {
         // Compute realistic breakdown from actual costs
-        // Activities cost comes from itinerary; other costs are proportional to budget
-        const remaining = Math.max(0, total - activitiesCost);
+        const remainingBudget = Math.max(0, total - activitiesCost);
         breakdown = {
-            accommodation: Math.round(remaining * 0.45),
-            food: Math.round(remaining * 0.25),
+            accommodation: Math.round(remainingBudget * 0.45),
+            food: Math.round(remainingBudget * 0.25),
             activities: activitiesCost,
-            transport: Math.round(remaining * 0.20),
-            emergency: Math.round(remaining * 0.10),
+            transport: Math.round(remainingBudget * 0.20),
+            emergency: Math.round(remainingBudget * 0.10),
         };
     }
     
-    const totalSpend = Object.values(breakdown).reduce((s, v) => s + v, 0);
-    // Ensure total spend doesn't exceed budget for display purposes
+    const totalSpend = summary.total_estimated_spend !== undefined
+        ? summary.total_estimated_spend
+        : Object.values(breakdown).reduce((s, v) => s + v, 0);
     const displaySpend = Math.min(totalSpend, total);
     state.budget = { total, used: displaySpend, breakdown };
     
-    const pct = Math.min(100, (displaySpend / total * 100));
-    const remaining = Math.max(0, total - displaySpend);
+    const pct = total > 0 ? Math.min(100, (displaySpend / total * 100)) : 0;
+    const remaining = summary.remaining !== undefined ? summary.remaining : Math.max(0, total - totalSpend);
     
     const amtEl = document.getElementById('budgetAmount');
     const fillEl = document.getElementById('budgetFill');
@@ -1542,14 +1533,16 @@ function loadInstagramReels(dest) {
             </div>
         </div>
     `).join('');
-    // Fetch real photos for each card
-    places.forEach(async (p, idx) => {
-        const photo = await getRealPhoto(p.name, dest, '');
-        if (photo) {
-            const imgs = grid.querySelectorAll('.reel-img');
-            if (imgs[idx]) { imgs[idx].style.backgroundImage = `url('${photo}')`; imgs[idx].style.backgroundSize = 'cover'; imgs[idx].style.backgroundPosition = 'center'; }
-        }
-    });
+    // Apply CC placeholders for discovery cards
+    const placeholder = getPlaceholderPhoto('landmark');
+    if (placeholder) {
+        const imgs = grid.querySelectorAll('.reel-img');
+        imgs.forEach(img => {
+            img.style.backgroundImage = `url('${placeholder}')`;
+            img.style.backgroundSize = 'cover';
+            img.style.backgroundPosition = 'center';
+        });
+    }
 }
 
 function loadYouTubeHiddenGems(dest) {
@@ -1578,14 +1571,16 @@ function loadYouTubeHiddenGems(dest) {
             </div>
         </div>
     `).join('');
-    // Fetch real photos for thumbnails
-    videos.forEach(async (v, idx) => {
-        const photo = await getRealPhoto(v.name.replace(/\d{4}/, '').trim(), dest, '');
-        if (photo) {
-            const thumbs = grid.querySelectorAll('.yt-thumbnail');
-            if (thumbs[idx]) { thumbs[idx].style.backgroundImage = `url('${photo}')`; thumbs[idx].style.backgroundSize = 'cover'; thumbs[idx].style.backgroundPosition = 'center'; }
-        }
-    });
+    // Apply CC placeholders for thumbnails
+    const placeholder = getPlaceholderPhoto('landmark');
+    if (placeholder) {
+        const thumbs = grid.querySelectorAll('.yt-thumbnail');
+        thumbs.forEach(thumb => {
+            thumb.style.backgroundImage = `url('${placeholder}')`;
+            thumb.style.backgroundSize = 'cover';
+            thumb.style.backgroundPosition = 'center';
+        });
+    }
 }
 
 function switchDiscoveryTab(tab, btn) {

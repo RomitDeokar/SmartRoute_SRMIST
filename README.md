@@ -25,7 +25,7 @@ Open `http://localhost:8080` in your browser.
 - **FastAPI** server with REST endpoints and WebSocket
 - **AI Engine** (`backend/ai_engine.py`): Q-Learning, MCTS, Bayesian Beta model, Naive Bayes weather classifier, POMDP belief state
 - **APIs**: Overpass (OSM), OpenTripMap, Wikipedia for attractions; OpenMeteo for weather
-- **Booking search**: flights, trains, hotels, cabs with real booking platform URLs
+- **Booking search**: flights, trains, hotels, cabs with booking platform URLs (prices shown as "Compare on provider")
 - **Persistence**: Q-table, Bayesian preferences, POMDP belief saved to `backend/ai_data/*.json`
 
 ### Frontend (`index.html`, `js/app.js`, `js/agentic.js`)
@@ -124,7 +124,8 @@ Where α=0.4, β=0.3, γ=0.2, δ=0.1.
 ## Limitations
 
 - Crowd levels use a time-of-day heuristic, not real-time data
-- Flight/train/hotel prices are simulated (distance-based formula, not live API)
+- Booking prices are not live; the UI shows "Compare on provider" with external links
+- Photos are Creative Commons placeholders by category; some places show "No photo available"
 - No DQN, PPO, or Hierarchical RL (only Q-Learning and MCTS)
 - No LangChain integration (removed)
 - Weather classifier uses pre-set Gaussian likelihood parameters, not trained on large datasets
