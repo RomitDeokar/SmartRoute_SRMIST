@@ -29,63 +29,39 @@ const agenticState = {
     paymentMethod: 'card',
     history: [],
     historyOpen: false,
+    paymentAutoTriggered: false,
+};
+
+const DEFAULT_PRICE_LABEL = 'Compare on provider';
+const getPriceLabel = (item) => item?.price_label || DEFAULT_PRICE_LABEL;
+const getPriceEstimate = (item) => {
+    if (!item) return 0;
+    if (item.price_label) return 0;
+    return item?.price ?? item?.price_per_night ?? item?.total_price ?? item?.estimated_price ?? 0;
+};
+const shouldAutoSelect = () => (typeof state !== 'undefined' ? state.autoMode !== false : true);
+const pickBestOption = (items, scoreFn) => {
+    if (!items?.length) return null;
+    return items.reduce((best, item) => (scoreFn(item) > scoreFn(best) ? item : best), items[0]);
 };
 
 // === SMART CITY EXTRACTION ===
-// Extracts the nearest major city from specific places (for booking flights/trains)
-function extractBookingCity(placeName) {
+// Centralized backend resolver to avoid mapping drift
+async function resolveBookingCity(placeName) {
     if (!placeName) return '';
-    const lower = placeName.toLowerCase().trim();
-    
-    // Known campus/locality to city mappings
-    const PLACE_TO_CITY = {
-        'srm': 'Chennai', 'srmist': 'Chennai', 'srm university': 'Chennai',
-        'kattankulathur': 'Chennai', 'kelambakkam': 'Chennai', 'tambaram': 'Chennai',
-        'vadapalani': 'Chennai', 't nagar': 'Chennai', 'mylapore': 'Chennai',
-        'anna nagar': 'Chennai', 'adyar': 'Chennai', 'guindy': 'Chennai',
-        'velachery': 'Chennai', 'porur': 'Chennai', 'chrompet': 'Chennai',
-        'perungudi': 'Chennai', 'thiruvanmiyur': 'Chennai', 'medavakkam': 'Chennai',
-        'sholinganallur': 'Chennai', 'omr': 'Chennai', 'ecr': 'Chennai',
-        'mahabalipuram': 'Chennai', 'chengalpattu': 'Chennai',
-        'srm trichy': 'Trichy', 'trichy campus': 'Trichy',
-        'srm ramapuram': 'Chennai', 'srm vadapalani': 'Chennai',
-        'iit bombay': 'Mumbai', 'iit madras': 'Chennai', 'iit delhi': 'Delhi',
-        'bits pilani': 'Pilani', 'bits goa': 'Goa', 'bits hyderabad': 'Hyderabad',
-        'vit vellore': 'Vellore', 'vit chennai': 'Chennai',
-        'anna university': 'Chennai', 'loyola college': 'Chennai',
-        'connaught place': 'Delhi', 'cp delhi': 'Delhi',
-        'bandra': 'Mumbai', 'andheri': 'Mumbai', 'colaba': 'Mumbai',
-        'koramangala': 'Bangalore', 'indiranagar': 'Bangalore', 'whitefield': 'Bangalore',
-        'banjara hills': 'Hyderabad', 'hitech city': 'Hyderabad',
-        'salt lake': 'Kolkata', 'park street': 'Kolkata',
-        'mg road': 'Bangalore', 'marina beach': 'Chennai', 'besant nagar': 'Chennai',
-        'taj mahal': 'Agra', 'gateway of india': 'Mumbai', 'india gate': 'Delhi',
-        'qutub minar': 'Delhi', 'hawa mahal': 'Jaipur', 'amber fort': 'Jaipur',
-    };
-    
-    // Direct match
-    if (PLACE_TO_CITY[lower]) return PLACE_TO_CITY[lower];
-    
-    // Check if any known place key is in the input
-    for (const [key, city] of Object.entries(PLACE_TO_CITY)) {
-        if (lower.includes(key)) return city;
+    try {
+        const res = await fetch(`${API_BASE}/agentic/resolve-city`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ place_name: placeName })
+        });
+        if (res.ok) {
+            const data = await res.json();
+            if (data?.city) return data.city;
+        }
+    } catch (e) {
+        // Fall back to raw input if backend is unavailable
     }
-    
-    // Check if input already contains a major city name
-    const majorCities = ['chennai', 'mumbai', 'delhi', 'bangalore', 'bengaluru', 'hyderabad',
-        'kolkata', 'pune', 'goa', 'jaipur', 'agra', 'varanasi', 'lucknow',
-        'kochi', 'shimla', 'manali', 'udaipur', 'trichy', 'coimbatore',
-        'madurai', 'pondicherry', 'ahmedabad', 'chandigarh', 'amritsar',
-        'bhopal', 'indore', 'nagpur', 'bhubaneswar', 'patna', 'dehradun',
-        'srinagar', 'jodhpur', 'mysore', 'mangalore', 'visakhapatnam',
-        'thiruvananthapuram', 'dubai', 'bangkok', 'singapore', 'london',
-        'paris', 'tokyo', 'new york', 'sydney', 'rome', 'istanbul',
-        'barcelona', 'amsterdam', 'bali', 'kathmandu', 'colombo'];
-    for (const city of majorCities) {
-        if (lower.includes(city)) return city.charAt(0).toUpperCase() + city.slice(1);
-    }
-    
-    // Return as-is (might already be a city name)
     return placeName.trim();
 }
 
@@ -135,15 +111,40 @@ function hideAllPanels() {
 }
 
 // === AUTO-START AFTER TRIP GENERATION ===
-// Hook into processTrip — called from app.js after itinerary rendered
-const _origProcessTrip = window.processTrip;
-window.processTrip = async function(data, dest, duration, budget) {
-    if (_origProcessTrip) await _origProcessTrip(data, dest, duration, budget);
-    // Now auto-start the agentic wizard
-    setTimeout(() => startAgenticWizard(dest, duration, budget, data), 600);
-};
+// Hook into processTrip — robust even if load order changes
+function wrapProcessTrip() {
+    if (!window.processTrip || window.processTrip.__agenticWrapped) return false;
+    const original = window.processTrip;
+    const wrapped = async function(data, dest, duration, budget) {
+        const result = await original(data, dest, duration, budget);
+        setTimeout(() => startAgenticWizard(dest, duration, budget, data), 600);
+        return result;
+    };
+    wrapped.__agenticWrapped = true;
+    window.processTrip = wrapped;
+    return true;
+}
 
-function startAgenticWizard(dest, duration, budget, data) {
+function ensureProcessTripHook() {
+    if (wrapProcessTrip()) return;
+    if (window.__agenticProcessTripWatch) return;
+    let current = window.processTrip;
+    Object.defineProperty(window, 'processTrip', {
+        configurable: true,
+        get() { return current; },
+        set(fn) {
+            current = fn;
+            wrapProcessTrip();
+        }
+    });
+    window.__agenticProcessTripWatch = true;
+    if (current) wrapProcessTrip();
+}
+
+ensureProcessTripHook();
+window.addEventListener('processTripReady', ensureProcessTripHook);
+
+async function startAgenticWizard(dest, duration, budget, data) {
     setWizardStep('trip_planned');
 
     const startDate = document.getElementById('startDate')?.value || new Date().toISOString().split('T')[0];
@@ -153,15 +154,15 @@ function startAgenticWizard(dest, duration, budget, data) {
         return d.toISOString().split('T')[0];
     })();
 
-    // Store context with smart city extraction for booking
+    // Store context with backend-resolved city extraction for booking
     const origin = (typeof state !== 'undefined' && state.origin) ? state.origin : document.getElementById('origin')?.value || '';
-    const destCity = extractBookingCity(dest) || dest;
-    const originCity = extractBookingCity(origin) || origin;
+    const destCity = (await resolveBookingCity(dest)) || dest;
+    const originCity = (await resolveBookingCity(origin)) || origin;
     agenticState.context = { dest, destCity, duration, budget, startDate, endDate, origin, originCity };
 
     const originMsg = origin ? ` from <strong>${origin}</strong>` : '';
     showAgentPrompt(
-        `Your <strong>${duration}-day ${dest}</strong> itinerary${originMsg} is ready! I can now help you book <strong>flights, trains, hotels, and local transport</strong>. What would you like to do first?`,
+        `Your <strong>${duration}-day ${dest}</strong> itinerary${originMsg} is ready! I can now help you book <strong>flights, trains, hotels, and local transport</strong>. Prices are not live; compare current rates on provider links. What would you like to do first?`,
         `<button class="btn btn-primary btn-sm" onclick="agenticSearchFlights()"><i class="fas fa-plane"></i> Search Flights</button>
          <button class="btn btn-sm" style="background:rgba(6,182,212,0.15);color:#06b6d4" onclick="agenticSearchTrains()"><i class="fas fa-train"></i> Search Trains</button>
          <button class="btn btn-sm" style="background:rgba(16,185,129,0.15);color:#10b981" onclick="agenticSearchHotels()"><i class="fas fa-hotel"></i> Search Hotels</button>
@@ -190,8 +191,8 @@ window.agenticSearchFlights = async function() {
     try {
         const persona = (typeof state !== 'undefined' && state.persona) ? state.persona : 'solo';
         const rawOrigin = ctx.origin || (typeof state !== 'undefined' && state.origin) || document.getElementById('origin')?.value || '';
-        const originCity = ctx.originCity || extractBookingCity(rawOrigin) || rawOrigin || 'Delhi';
-        const destCity = ctx.destCity || extractBookingCity(ctx.dest) || ctx.dest;
+        const originCity = ctx.originCity || (await resolveBookingCity(rawOrigin)) || rawOrigin || 'Delhi';
+        const destCity = ctx.destCity || (await resolveBookingCity(ctx.dest)) || ctx.dest;
         const res = await fetch(`${API_BASE}/agentic/flights/search`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -212,10 +213,19 @@ window.agenticSearchFlights = async function() {
             agenticState.tripId = data.trip_id || agenticState.tripId;
             renderFlightResults(data.flights);
             showAgentPrompt(
-                `✈️ <strong>Flight Agent found ${data.flights.length} options!</strong> Best price: <strong>₹${data.flights[0].price.toLocaleString()}</strong> (${data.flights[0].airline}). Pick one or continue.`,
+                `✈️ <strong>Flight Agent found ${data.flights.length} options!</strong> Prices are placeholders — compare live rates on provider links. Pick one or continue.`,
                 `<button class="btn btn-sm" style="background:rgba(6,182,212,0.15);color:#06b6d4" onclick="agenticSearchTrains()"><i class="fas fa-train"></i> Search Trains</button>
                  <button class="btn btn-sm" style="background:rgba(16,185,129,0.15);color:#10b981" onclick="agenticSearchHotels()"><i class="fas fa-arrow-right"></i> Skip → Hotels</button>`
             );
+            if (shouldAutoSelect()) {
+                const best = pickBestOption(data.flights, f => f.rating || 0);
+                if (best) {
+                    setTimeout(() => {
+                        selectFlight(best.id);
+                        setTimeout(() => agenticSearchHotels(), 800);
+                    }, 500);
+                }
+            }
         } else {
             showAgentPrompt('No flights found. Try trains instead.', 
                 `<button class="btn btn-sm" style="background:rgba(6,182,212,0.15);color:#06b6d4" onclick="agenticSearchTrains()"><i class="fas fa-train"></i> Search Trains</button>
@@ -261,7 +271,7 @@ function renderFlightResults(flights) {
                 </div>
             </div>
             <div class="flight-price">
-                <div class="flight-price-val">₹${f.price.toLocaleString()}</div>
+                <div class="flight-price-val">${getPriceLabel(f)}</div>
                 <div class="flight-price-class">${f.cabin_class}</div>
                 <div class="flight-meta">
                     <span class="flight-tag">${f.baggage}</span>
@@ -288,13 +298,13 @@ window.selectFlight = function(flightId) {
     agenticState.selections.flight = flight;
     // Re-render to update selected state
     renderFlightResults(agenticState.results.flights);
-    showToast(`Selected: ${flight.airline} ${flight.flight_no} — ₹${flight.price.toLocaleString()}`, 'success');
-    if (typeof addLog === 'function') addLog('booking', `Flight selected: ${flight.airline} ₹${flight.price.toLocaleString()}`, 'success');
+    showToast(`Selected: ${flight.airline} ${flight.flight_no} — ${getPriceLabel(flight)}`, 'success');
+    if (typeof addLog === 'function') addLog('booking', `Flight selected: ${flight.airline} (${getPriceLabel(flight)})`, 'success');
 
     // Auto-prompt next step
     setTimeout(() => {
         showAgentPrompt(
-            `✅ Flight booked: <strong>${flight.airline} ${flight.flight_no}</strong> (₹${flight.price.toLocaleString()}). Now let's find a hotel in <strong>${agenticState.context.dest}</strong>!`,
+            `✅ Flight booked: <strong>${flight.airline} ${flight.flight_no}</strong> (${getPriceLabel(flight)}). Now let's find a hotel in <strong>${agenticState.context.dest}</strong>!`,
             `<button class="btn btn-primary btn-sm" onclick="agenticSearchHotels()"><i class="fas fa-hotel"></i> Search Hotels</button>
              <button class="btn btn-sm" style="background:rgba(139,92,246,0.15);color:#8b5cf6" onclick="agenticSkipToReview()"><i class="fas fa-forward"></i> Skip to Review</button>`
         );
@@ -303,7 +313,7 @@ window.selectFlight = function(flightId) {
 
 window.sortFlightResults = function(criteria) {
     const flights = [...agenticState.results.flights];
-    if (criteria === 'price') flights.sort((a, b) => a.price - b.price);
+    if (criteria === 'price') flights.sort((a, b) => getPriceEstimate(a) - getPriceEstimate(b));
     else if (criteria === 'duration') flights.sort((a, b) => a.duration.localeCompare(b.duration));
     else if (criteria === 'rating') flights.sort((a, b) => b.rating - a.rating);
     agenticState.results.flights = flights;
@@ -343,9 +353,18 @@ window.agenticSearchHotels = async function() {
             agenticState.results.hotels = data.hotels;
             renderHotelResults(data.hotels);
             showAgentPrompt(
-                `🏨 <strong>Hotel Agent found ${data.hotels.length} options!</strong> ${data.agent_message}. Pick a hotel or skip to transport.`,
+                `🏨 <strong>Hotel Agent found ${data.hotels.length} options!</strong> Prices are placeholders — compare live rates on provider links. Pick a hotel or skip to transport.`,
                 `<button class="btn btn-sm" style="background:rgba(245,158,11,0.15);color:#f59e0b" onclick="agenticSearchCabs()"><i class="fas fa-arrow-right"></i> Skip → Transport</button>`
             );
+            if (shouldAutoSelect()) {
+                const best = pickBestOption(data.hotels, h => h.rating || 0);
+                if (best) {
+                    setTimeout(() => {
+                        selectHotel(best.id);
+                        setTimeout(() => agenticSearchCabs(), 800);
+                    }, 500);
+                }
+            }
         } else {
             showAgentPrompt('No hotels found. Search cabs instead?',
                 `<button class="btn btn-primary btn-sm" onclick="agenticSearchCabs()"><i class="fas fa-car"></i> Search Cabs</button>`);
@@ -392,9 +411,9 @@ function renderHotelResults(hotels) {
                 </div>
             </div>
             <div class="hotel-price">
-                <div class="hotel-price-val">₹${h.price_per_night.toLocaleString()}</div>
+                <div class="hotel-price-val">${getPriceLabel(h)}</div>
                 <div class="hotel-price-night">per night</div>
-                <div class="hotel-price-total">Total: ₹${h.total_price.toLocaleString()}</div>
+                <div class="hotel-price-total">Total: ${getPriceLabel(h)}</div>
                 <div style="font-size:0.65rem;color:var(--text-3)">${h.nights} night${h.nights > 1 ? 's' : ''}</div>
             </div>
         </div>`;
@@ -408,12 +427,12 @@ window.selectHotel = function(hotelId) {
     if (!hotel) return;
     agenticState.selections.hotel = hotel;
     renderHotelResults(agenticState.results.hotels);
-    showToast(`Selected: ${hotel.name} — ₹${hotel.price_per_night.toLocaleString()}/night`, 'success');
-    if (typeof addLog === 'function') addLog('booking', `Hotel selected: ${hotel.name}`, 'success');
+    showToast(`Selected: ${hotel.name} — ${getPriceLabel(hotel)}`, 'success');
+    if (typeof addLog === 'function') addLog('booking', `Hotel selected: ${hotel.name} (${getPriceLabel(hotel)})`, 'success');
 
     setTimeout(() => {
         showAgentPrompt(
-            `✅ Hotel: <strong>${hotel.name}</strong> (₹${hotel.total_price.toLocaleString()} for ${hotel.nights} nights). Now let's arrange local transport!`,
+            `✅ Hotel: <strong>${hotel.name}</strong> (${getPriceLabel(hotel)}). Now let's arrange local transport!`,
             `<button class="btn btn-primary btn-sm" onclick="agenticSearchCabs()"><i class="fas fa-car"></i> Search Cabs</button>
              <button class="btn btn-sm" style="background:rgba(139,92,246,0.15);color:#8b5cf6" onclick="agenticSkipToReview()"><i class="fas fa-forward"></i> Skip to Review</button>`
         );
@@ -422,7 +441,7 @@ window.selectHotel = function(hotelId) {
 
 window.sortHotelResults = function(criteria) {
     const hotels = [...agenticState.results.hotels];
-    if (criteria === 'price') hotels.sort((a, b) => a.price_per_night - b.price_per_night);
+    if (criteria === 'price') hotels.sort((a, b) => getPriceEstimate(a) - getPriceEstimate(b));
     else if (criteria === 'rating') hotels.sort((a, b) => b.rating - a.rating);
     else if (criteria === 'stars') hotels.sort((a, b) => b.stars - a.stars);
     agenticState.results.hotels = hotels;
@@ -462,9 +481,18 @@ window.agenticSearchCabs = async function() {
             agenticState.results.cabs = data.cabs;
             renderCabResults(data.cabs);
             showAgentPrompt(
-                `🚗 <strong>Transport Agent found ${data.cabs.length} options!</strong> ${data.agent_message}. Select one or go to review.`,
+                `🚗 <strong>Transport Agent found ${data.cabs.length} options!</strong> Prices are placeholders — compare live rates on provider links. Select one or go to review.`,
                 `<button class="btn btn-sm" style="background:rgba(139,92,246,0.15);color:#8b5cf6" onclick="agenticSkipToReview()"><i class="fas fa-arrow-right"></i> Skip → Review</button>`
             );
+            if (shouldAutoSelect()) {
+                const best = pickBestOption(data.cabs, c => c.driver_rating || 0);
+                if (best) {
+                    setTimeout(() => {
+                        selectCab(best.id);
+                        setTimeout(() => agenticSkipToReview(), 800);
+                    }, 500);
+                }
+            }
         } else {
             showAgentPrompt('No cabs found. Proceed to review?',
                 `<button class="btn btn-primary btn-sm" onclick="agenticSkipToReview()"><i class="fas fa-shopping-cart"></i> Review</button>`);
@@ -498,8 +526,8 @@ function renderCabResults(cabs) {
                 </div>
             </div>
             <div class="cab-price">
-                <div class="cab-price-val">₹${c.estimated_price.toLocaleString()}</div>
-                <div style="font-size:0.65rem;color:var(--text-3)">Estimated</div>
+                <div class="cab-price-val">${getPriceLabel(c)}</div>
+                <div style="font-size:0.65rem;color:var(--text-3)">Compare on provider</div>
             </div>
         </div>
     `).join('');
@@ -512,7 +540,7 @@ window.selectCab = function(cabId) {
     if (!cab) return;
     agenticState.selections.cab = cab;
     renderCabResults(agenticState.results.cabs);
-    showToast(`Selected: ${cab.provider} — ₹${cab.estimated_price.toLocaleString()}`, 'success');
+    showToast(`Selected: ${cab.provider} — ${getPriceLabel(cab)}`, 'success');
 
     setTimeout(() => {
         showAgentPrompt(
@@ -538,8 +566,8 @@ window.agenticSearchTrains = async function() {
     try {
         const persona = (typeof state !== 'undefined' && state.persona) ? state.persona : 'solo';
         const rawOrigin = ctx.origin || (typeof state !== 'undefined' && state.origin) || document.getElementById('origin')?.value || '';
-        const originCity = ctx.originCity || extractBookingCity(rawOrigin) || rawOrigin || 'Chennai';
-        const destCity = ctx.destCity || extractBookingCity(ctx.dest) || ctx.dest;
+        const originCity = ctx.originCity || (await resolveBookingCity(rawOrigin)) || rawOrigin || 'Chennai';
+        const destCity = ctx.destCity || (await resolveBookingCity(ctx.dest)) || ctx.dest;
         const trainClass = persona === 'luxury' ? '1AC' : persona === 'family' ? '2AC' : '3AC';
         const res = await fetch(`${API_BASE}/agentic/trains/search`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -559,9 +587,18 @@ window.agenticSearchTrains = async function() {
             agenticState.results.trains = data.trains;
             renderTrainResults(data.trains);
             showAgentPrompt(
-                `🚂 <strong>Found ${data.trains.length} trains!</strong> ${data.agent_message}. Select one or proceed.`,
+                `🚂 <strong>Found ${data.trains.length} trains!</strong> Prices are placeholders — compare live rates on provider links. Select one or proceed.`,
                 `<button class="btn btn-sm" style="background:rgba(16,185,129,0.15);color:#10b981" onclick="agenticSearchHotels()"><i class="fas fa-arrow-right"></i> Next → Hotels</button>`
             );
+            if (shouldAutoSelect()) {
+                const best = pickBestOption(data.trains, t => t.rating || 0);
+                if (best) {
+                    setTimeout(() => {
+                        selectTrain(best.id);
+                        setTimeout(() => agenticSearchHotels(), 800);
+                    }, 500);
+                }
+            }
         } else {
             showAgentPrompt('No direct trains found on this route. Try flights or proceed to hotels.',
                 `<button class="btn btn-primary btn-sm" onclick="agenticSearchFlights()"><i class="fas fa-plane"></i> Flights</button>
@@ -611,7 +648,7 @@ function renderTrainResults(trains) {
                     <div class="flight-city">${t.destination}</div>
                 </div>
                 <div class="flight-price-col">
-                    <div class="flight-price" style="color:var(--success);font-weight:700;font-size:1.1rem">₹${t.price.toLocaleString()}</div>
+                    <div class="flight-price" style="color:var(--success);font-weight:700;font-size:1.1rem">${getPriceLabel(t)}</div>
                     <div style="font-size:0.65rem;color:var(--text-3)">${t.train_class} class</div>
                     <div style="font-size:0.65rem;color:var(--${availClass});font-weight:600">${t.availability}</div>
                 </div>
@@ -637,7 +674,7 @@ window.selectTrain = function(trainId) {
     if (!train) return;
     agenticState.selections.train = train;
     renderTrainResults(agenticState.results.trains);
-    showToast(`Selected: ${train.train_name} — ₹${train.price.toLocaleString()}`, 'success');
+    showToast(`Selected: ${train.train_name} — ${getPriceLabel(train)}`, 'success');
 
     setTimeout(() => {
         showAgentPrompt(
@@ -650,7 +687,7 @@ window.selectTrain = function(trainId) {
 window.sortTrainResults = function(by) {
     const trains = agenticState.results.trains;
     if (!trains) return;
-    if (by === 'price') trains.sort((a, b) => a.price - b.price);
+    if (by === 'price') trains.sort((a, b) => getPriceEstimate(a) - getPriceEstimate(b));
     else if (by === 'duration') trains.sort((a, b) => parseInt(a.duration) - parseInt(b.duration));
     else if (by === 'rating') trains.sort((a, b) => b.rating - a.rating);
     renderTrainResults(trains);
@@ -669,10 +706,10 @@ window.agenticSkipToReview = function() {
     // Build cart
     agenticState.cart = [];
     const sel = agenticState.selections;
-    if (sel.flight) agenticState.cart.push({ type: 'flight', item: sel.flight, price: sel.flight.price });
-    if (sel.train) agenticState.cart.push({ type: 'train', item: sel.train, price: sel.train.price });
-    if (sel.hotel) agenticState.cart.push({ type: 'hotel', item: sel.hotel, price: sel.hotel.total_price });
-    if (sel.cab) agenticState.cart.push({ type: 'cab', item: sel.cab, price: sel.cab.estimated_price });
+    if (sel.flight) agenticState.cart.push({ type: 'flight', item: sel.flight, price: getPriceEstimate(sel.flight), price_label: getPriceLabel(sel.flight) });
+    if (sel.train) agenticState.cart.push({ type: 'train', item: sel.train, price: getPriceEstimate(sel.train), price_label: getPriceLabel(sel.train) });
+    if (sel.hotel) agenticState.cart.push({ type: 'hotel', item: sel.hotel, price: getPriceEstimate(sel.hotel), price_label: getPriceLabel(sel.hotel) });
+    if (sel.cab) agenticState.cart.push({ type: 'cab', item: sel.cab, price: getPriceEstimate(sel.cab), price_label: getPriceLabel(sel.cab) });
 
     renderCart();
     showAgentPrompt(
@@ -713,16 +750,23 @@ function renderCart() {
                 <div class="cart-item-title">${c.type.charAt(0).toUpperCase() + c.type.slice(1)}</div>
                 <div class="cart-item-desc">${labels[c.type](c.item)}</div>
             </div>
-            <div class="cart-item-price">₹${c.price.toLocaleString()}</div>
+            <div class="cart-item-price">${c.price_label || DEFAULT_PRICE_LABEL}</div>
             <div class="cart-item-remove" onclick="removeFromCart(${i})" title="Remove"><i class="fas fa-trash-alt"></i></div>
         </div>
     `).join('');
 
-    const total = agenticState.cart.reduce((s, c) => s + c.price, 0);
+    const hasLivePrices = agenticState.cart.every(c => typeof c.price === 'number' && c.price > 0 && !c.price_label);
+    const total = agenticState.cart.reduce((s, c) => s + (c.price || 0), 0);
     if (totalEl) {
-        totalEl.innerHTML = `
+        totalEl.innerHTML = hasLivePrices
+            ? `
             <div class="cart-total-label">Total Amount</div>
             <div class="cart-total-value">₹${total.toLocaleString()}</div>
+        `
+            : `
+            <div class="cart-total-label">Total Amount</div>
+            <div class="cart-total-value">${DEFAULT_PRICE_LABEL}</div>
+            <div class="text-xs text-muted" style="margin-top:4px">Live pricing is shown on provider sites.</div>
         `;
     }
 }
@@ -761,19 +805,51 @@ window.agenticProceedToPayment = function() {
     const panel = document.getElementById('paymentPanel');
     if (panel) panel.style.display = 'block';
 
-    const total = agenticState.cart.reduce((s, c) => s + c.price, 0);
+    const hasLivePrices = agenticState.cart.every(c => typeof c.price === 'number' && c.price > 0 && !c.price_label);
+    const total = agenticState.cart.reduce((s, c) => s + (c.price || 0), 0);
     const summaryEl = document.getElementById('paymentSummaryTotal');
     if (summaryEl) {
-        summaryEl.innerHTML = `<span>Total to pay</span><span style="color:var(--success);font-size:1.2rem">₹${total.toLocaleString()}</span>`;
+        summaryEl.innerHTML = hasLivePrices
+            ? `<span>Total to pay</span><span style="color:var(--success);font-size:1.2rem">₹${total.toLocaleString()}</span>`
+            : `<span>Total to pay</span><span style="color:var(--text-2);font-size:1.1rem">${DEFAULT_PRICE_LABEL}</span>`;
+    }
+
+    const payBtn = document.getElementById('payNowBtn');
+    if (payBtn) {
+        payBtn.disabled = agenticState.cart.length === 0;
+        if (!hasLivePrices) {
+            payBtn.innerHTML = '<i class="fas fa-lock"></i> Simulate Payment';
+        } else {
+            payBtn.innerHTML = '<i class="fas fa-lock"></i> Pay Securely';
+        }
     }
 
     showAgentPrompt(
-        `💳 Secure payment for <strong>₹${total.toLocaleString()}</strong>. Choose your preferred payment method below.`,
+        hasLivePrices
+            ? `💳 Secure payment for <strong>₹${total.toLocaleString()}</strong>. Choose your preferred payment method below.`
+            : `💳 Prices are placeholders. Simulate payment here, then complete checkout on provider sites.`,
         ''
     );
 
+    prefillPaymentFields();
+    if (!hasLivePrices && shouldAutoSelect() && !agenticState.paymentAutoTriggered) {
+        agenticState.paymentAutoTriggered = true;
+        setTimeout(() => agenticProcessPayment(), 1200);
+    }
+
     panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 };
+
+function prefillPaymentFields() {
+    const card = document.getElementById('payCardNumber');
+    const expiry = document.getElementById('payExpiry');
+    const cvv = document.getElementById('payCVV');
+    const upi = document.getElementById('payUPI');
+    if (card && !card.value) card.value = '4242 4242 4242 4242';
+    if (expiry && !expiry.value) expiry.value = '12/30';
+    if (cvv && !cvv.value) cvv.value = '123';
+    if (upi && !upi.value) upi.value = 'demo@upi';
+}
 
 window.selectPaymentMethod = function(method, el) {
     agenticState.paymentMethod = method;
@@ -787,11 +863,16 @@ window.selectPaymentMethod = function(method, el) {
 };
 
 window.agenticProcessPayment = async function() {
-    const total = agenticState.cart.reduce((s, c) => s + c.price, 0);
-    if (total === 0) { showToast('Nothing to pay', 'warning'); return; }
+    const hasLivePrices = agenticState.cart.every(c => typeof c.price === 'number' && c.price > 0 && !c.price_label);
+    const total = agenticState.cart.reduce((s, c) => s + (c.price || 0), 0);
+    const simulate = !hasLivePrices;
+    if (hasLivePrices && total === 0) { showToast('Nothing to pay', 'warning'); return; }
 
     const btn = document.getElementById('payNowBtn');
-    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...'; }
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = simulate ? '<i class="fas fa-spinner fa-spin"></i> Simulating...' : '<i class="fas fa-spinner fa-spin"></i> Processing...';
+    }
 
     if (typeof showLoading === 'function') showLoading(true);
 
@@ -799,16 +880,18 @@ window.agenticProcessPayment = async function() {
         // Process payment for each item
         const results = [];
         for (const cartItem of agenticState.cart) {
+            const amount = simulate ? 0 : cartItem.price;
             const res = await fetch(`${API_BASE}/agentic/payment/process`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     booking_id: cartItem.item.id,
                     booking_type: cartItem.type,
-                    amount: cartItem.price,
+                    amount,
                     currency: 'INR',
                     payment_method: agenticState.paymentMethod,
                     card_last4: document.getElementById('payCardNumber')?.value?.slice(-4) || '4242',
                     upi_id: document.getElementById('payUPI')?.value || '',
+                    simulated: simulate,
                 })
             });
             const data = await res.json();
@@ -829,16 +912,16 @@ window.agenticProcessPayment = async function() {
 
         const allSuccess = results.every(r => r.success);
         if (allSuccess) {
-            showToast('Payment successful! All bookings confirmed.', 'success');
+            showToast(simulate ? 'Payment simulation complete. Bookings recorded.' : 'Payment successful! All bookings confirmed.', 'success');
             agenticShowConfirmation(results);
         } else {
             showToast('Some payments failed. Please retry.', 'error');
-            if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-lock"></i> Pay Securely'; }
+            if (btn) { btn.disabled = false; btn.innerHTML = simulate ? '<i class="fas fa-lock"></i> Simulate Payment' : '<i class="fas fa-lock"></i> Pay Securely'; }
         }
     } catch (e) {
         if (typeof showLoading === 'function') showLoading(false);
         showToast('Payment processing error. Please try again.', 'error');
-        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-lock"></i> Pay Securely'; }
+        if (btn) { btn.disabled = false; btn.innerHTML = simulate ? '<i class="fas fa-lock"></i> Simulate Payment' : '<i class="fas fa-lock"></i> Pay Securely'; }
     }
 };
 
@@ -855,25 +938,28 @@ function agenticShowConfirmation(paymentResults) {
 
     const ctx = agenticState.context || {};
     const sel = agenticState.selections;
-    const total = agenticState.cart.reduce((s, c) => s + c.price, 0);
+    const hasLivePrices = agenticState.cart.every(c => typeof c.price === 'number' && c.price > 0 && !c.price_label);
+    const total = agenticState.cart.reduce((s, c) => s + (c.price || 0), 0);
 
     const msg = document.getElementById('confirmationMsg');
-    if (msg) msg.textContent = `Your ${ctx.duration || ''}-day trip to ${ctx.dest || ''} is fully booked! Total: ₹${total.toLocaleString()}`;
+    if (msg) msg.textContent = hasLivePrices
+        ? `Your ${ctx.duration || ''}-day trip to ${ctx.dest || ''} is fully booked! Total: ₹${total.toLocaleString()}`
+        : `Your ${ctx.duration || ''}-day trip to ${ctx.dest || ''} is ready! Compare live prices on provider sites.`;
 
     const details = document.getElementById('confirmationDetails');
     if (details) {
         let html = '';
         if (sel.flight) {
-            html += `<div class="confirmation-item"><div class="confirmation-item-icon">✈️</div><div class="confirmation-item-text">${sel.flight.airline} ${sel.flight.flight_no} · ${sel.flight.departure} → ${sel.flight.arrival} · ₹${sel.flight.price.toLocaleString()}</div><div class="confirmation-item-ref">${sel.flight.id}</div></div>`;
+            html += `<div class="confirmation-item"><div class="confirmation-item-icon">✈️</div><div class="confirmation-item-text">${sel.flight.airline} ${sel.flight.flight_no} · ${sel.flight.departure} → ${sel.flight.arrival} · ${getPriceLabel(sel.flight)}</div><div class="confirmation-item-ref">${sel.flight.id}</div></div>`;
         }
         if (sel.hotel) {
-            html += `<div class="confirmation-item"><div class="confirmation-item-icon">🏨</div><div class="confirmation-item-text">${sel.hotel.name} · ${sel.hotel.nights} nights · ₹${sel.hotel.total_price.toLocaleString()}</div><div class="confirmation-item-ref">${sel.hotel.id}</div></div>`;
+            html += `<div class="confirmation-item"><div class="confirmation-item-icon">🏨</div><div class="confirmation-item-text">${sel.hotel.name} · ${sel.hotel.nights} nights · ${getPriceLabel(sel.hotel)}</div><div class="confirmation-item-ref">${sel.hotel.id}</div></div>`;
         }
         if (sel.cab) {
-            html += `<div class="confirmation-item"><div class="confirmation-item-icon">🚗</div><div class="confirmation-item-text">${sel.cab.provider} · ${sel.cab.duration_hours}hrs · ₹${sel.cab.estimated_price.toLocaleString()}</div><div class="confirmation-item-ref">${sel.cab.id}</div></div>`;
+            html += `<div class="confirmation-item"><div class="confirmation-item-icon">🚗</div><div class="confirmation-item-text">${sel.cab.provider} · ${sel.cab.duration_hours}hrs · ${getPriceLabel(sel.cab)}</div><div class="confirmation-item-ref">${sel.cab.id}</div></div>`;
         }
         if (sel.train) {
-            html += `<div class="confirmation-item"><div class="confirmation-item-icon">🚂</div><div class="confirmation-item-text">${sel.train.train_name} #${sel.train.train_number} · ${sel.train.departure} → ${sel.train.arrival} · ₹${sel.train.price.toLocaleString()}</div><div class="confirmation-item-ref">${sel.train.id}</div></div>`;
+            html += `<div class="confirmation-item"><div class="confirmation-item-icon">🚂</div><div class="confirmation-item-text">${sel.train.train_name} #${sel.train.train_number} · ${sel.train.departure} → ${sel.train.arrival} · ${getPriceLabel(sel.train)}</div><div class="confirmation-item-ref">${sel.train.id}</div></div>`;
         }
         if (!html) {
             html = '<div class="confirmation-item"><div class="confirmation-item-icon">🗺️</div><div class="confirmation-item-text">Itinerary confirmed (no bookings added)</div></div>';

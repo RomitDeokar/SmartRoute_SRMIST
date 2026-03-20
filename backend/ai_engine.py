@@ -4,7 +4,7 @@ All components integrated with persistence (JSON files) and real data.
 No fake simulations. No false claims.
 """
 
-import json, os, math, random, time
+import json, os, math, random, time, hashlib
 import numpy as np
 from typing import Dict, List, Tuple, Optional, Any
 from collections import defaultdict
@@ -55,13 +55,22 @@ class MDPState:
         self.total_cost = total_cost
 
     def to_tuple(self) -> Tuple:
+        budget_total = max(self.budget_total, 1)
+        budget_ratio = self.budget_remaining / budget_total
+        cost_ratio = self.total_cost / budget_total
+        avg_activity_cost = self.total_cost / max(self.activity_count, 1)
+        avg_cost_bucket = int(min(avg_activity_cost / budget_total, 1) * 20)
+        location_bucket = int(hashlib.md5(self.location.encode("utf-8")).hexdigest(), 16) % 50
         return (
             self.day,
-            self.location,
-            int(self.budget_remaining / 500),   # discretise
-            int(self.weather_prob * 10),
-            int(self.crowd_level / 10),
+            location_bucket,
+            int(budget_ratio * 30),
+            int(cost_ratio * 30),
+            int(self.weather_prob * 20),
+            int(self.crowd_level / 5),
             int(self.satisfaction * 2),
+            min(self.activity_count, 10),
+            avg_cost_bucket,
         )
 
     def to_dict(self) -> Dict:
@@ -330,7 +339,10 @@ class MCTSNode:
     def ucb1(self, c=1.41) -> float:
         if self.visits == 0:
             return float("inf")
-        return (self.value / self.visits) + c * math.sqrt(math.log(self.parent.visits) / self.visits)
+        if not self.parent:
+            return self.value / self.visits
+        parent_visits = max(self.parent.visits, 1)
+        return (self.value / self.visits) + c * math.sqrt(math.log(parent_visits) / self.visits)
 
     def best_child(self, c=1.41) -> "MCTSNode":
         return max(self.children, key=lambda ch: ch.ucb1(c))
@@ -362,8 +374,8 @@ class MCTSPlanner:
                     break
                 node = node.best_child(self.exploration)
 
-            # Expansion — try each action
-            if node.visits > 0 or node is root:
+            # Expansion — try each action once per node
+            if not node.children:
                 for action in ACTIONS:
                     child_itin = copy.deepcopy(node.itin)
                     child_itin = self.env.apply_action(child_itin, action, attractions)
@@ -372,13 +384,20 @@ class MCTSPlanner:
                 if node.children:
                     node = random.choice(node.children)
 
-            # Simulation (rollout 3 random actions)
+            # Simulation rollout with discounted evaluation
             sim_itin = copy.deepcopy(node.itin)
-            for _ in range(3):
+            rollout_steps = max(4, min(8, (len(attractions) // 2) if attractions else 4))
+            cumulative = 0.0
+            discount = 1.0
+            discount_total = 0.0
+            for _ in range(rollout_steps):
                 act = random.choice(ACTIONS)
                 sim_itin = self.env.apply_action(sim_itin, act, attractions)
-            state = MDPState.from_itinerary(sim_itin, weather, budget)
-            reward = self.env.reward(state)
+                state = MDPState.from_itinerary(sim_itin, weather, budget)
+                cumulative += discount * self.env.reward(state)
+                discount_total += discount
+                discount *= 0.9
+            reward = cumulative / max(discount_total, 1.0)
 
             # Backpropagation
             n = node
@@ -551,54 +570,34 @@ class DirichletPreferences:
 # ============================================================================
 
 class WeatherNaiveBayes:
-    """Naive Bayes classifier for weather. Takes OpenMeteo features and outputs
-    P(sunny|features), P(cloudy|features), P(rainy|features).
-    """
+    """Weather classifier that derives probabilities from the current forecast sample."""
 
     def __init__(self):
         self.classes = ["sunny", "cloudy", "rainy"]
-        self.priors = {"sunny": 0.5, "cloudy": 0.3, "rainy": 0.2}
-        self.likelihoods = {
-            "sunny":  {"temp": (30, 5), "humidity": (45, 12), "cloud_cover": (15, 12), "wind_speed": (8, 4), "precipitation": (0, 0.5)},
-            "cloudy": {"temp": (25, 4), "humidity": (65, 10), "cloud_cover": (60, 15), "wind_speed": (14, 6), "precipitation": (1, 2)},
-            "rainy":  {"temp": (22, 3), "humidity": (85, 8),  "cloud_cover": (88, 10), "wind_speed": (18, 7), "precipitation": (8, 5)},
-        }
 
-    def classify(self, features: Dict) -> Dict[str, float]:
-        """Return posterior probabilities for a single observation."""
-        log_posts = {}
-        for cls in self.classes:
-            lp = math.log(self.priors[cls])
-            for feat, val in features.items():
-                if feat in self.likelihoods[cls]:
-                    mu, sigma = self.likelihoods[cls][feat]
-                    if sigma > 0:
-                        lp += -0.5 * math.log(2 * math.pi * sigma**2) - 0.5 * ((val - mu) / sigma)**2
-            log_posts[cls] = lp
-        # normalise
-        mx = max(log_posts.values())
-        exps = {k: math.exp(v - mx) for k, v in log_posts.items()}
-        total = sum(exps.values())
-        return {k: round(v / total, 4) for k, v in exps.items()}
+    def _classify_day(self, weather: Dict, precip_threshold: float, cloud_threshold: float) -> str:
+        precipitation = weather.get("precipitation", 0)
+        cloud_cover = weather.get("cloud_cover", 0)
+        if precipitation >= precip_threshold and precipitation > 0:
+            return "rainy"
+        if cloud_cover >= cloud_threshold:
+            return "cloudy"
+        return "sunny"
 
     def predict_from_openmeteo(self, weather_list: List[Dict]) -> Dict[str, float]:
         """Classify each day from OpenMeteo API response and return averaged probs."""
         if not weather_list:
             return {"sunny": 0.5, "cloudy": 0.3, "rainy": 0.2}
-        all_preds = []
+        precip_vals = [w.get("precipitation", 0) for w in weather_list]
+        cloud_vals = [w.get("cloud_cover", 0) for w in weather_list]
+        precip_threshold = float(np.percentile(precip_vals, 70)) if precip_vals else 0
+        cloud_threshold = float(np.percentile(cloud_vals, 60)) if cloud_vals else 50
+        counts = {c: 0 for c in self.classes}
         for w in weather_list:
-            feats = {
-                "temp": w.get("temp_max", 28),
-                "humidity": w.get("humidity", 50),
-                "cloud_cover": w.get("cloud_cover", 30),
-                "wind_speed": w.get("wind_speed", 10),
-                "precipitation": w.get("precipitation", 0),
-            }
-            all_preds.append(self.classify(feats))
-        avg = {}
-        for cls in self.classes:
-            avg[cls] = round(sum(p[cls] for p in all_preds) / len(all_preds), 4)
-        return avg
+            cls = self._classify_day(w, precip_threshold, cloud_threshold)
+            counts[cls] += 1
+        total = sum(counts.values()) or 1
+        return {k: round(v / total, 4) for k, v in counts.items()}
 
 
 # ============================================================================
@@ -715,6 +714,39 @@ def _haversine_km(lat1, lon1, lat2, lon2):
     a = math.sin(dlat/2)**2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon/2)**2
     return R * 2 * math.asin(min(1, math.sqrt(a)))
 
+
+def _route_distance_km(route: List[Dict]) -> float:
+    if len(route) < 2:
+        return 0.0
+    return sum(
+        _haversine_km(route[i].get("lat", 0), route[i].get("lon", 0),
+                      route[i + 1].get("lat", 0), route[i + 1].get("lon", 0))
+        for i in range(len(route) - 1)
+    )
+
+
+def _two_opt(route: List[Dict], max_passes: int = 2) -> List[Dict]:
+    if len(route) < 4:
+        return route
+    best = route
+    best_dist = _route_distance_km(best)
+    for _ in range(max_passes):
+        improved = False
+        for i in range(1, len(best) - 2):
+            for j in range(i + 1, len(best) - 1):
+                if j - i == 1:
+                    continue
+                candidate = best[:]
+                candidate[i:j] = reversed(best[i:j])
+                cand_dist = _route_distance_km(candidate)
+                if cand_dist + 0.01 < best_dist:
+                    best, best_dist = candidate, cand_dist
+                    improved = True
+        if not improved:
+            break
+    return best
+
+
 def _nearest_neighbor_order(places: List[Dict]) -> List[Dict]:
     if len(places) <= 2:
         return places
@@ -730,7 +762,7 @@ def _nearest_neighbor_order(places: List[Dict]) -> List[Dict]:
                 best_dist = d
                 best_idx = i
         ordered.append(remaining.pop(best_idx))
-    return ordered
+    return _two_opt(ordered)
 
 
 # ============================================================================
