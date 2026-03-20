@@ -117,21 +117,105 @@ def apply_placeholder_photo(item: Dict, place_type: str) -> None:
         item["photo_credit"] = PHOTO_PLACEHOLDER_CREDIT
 
 # ============================================
-# PHOTO FETCHING
+# PHOTO FETCHING — Real Wikipedia/Wikimedia Commons images
 # ============================================
 async def fetch_wiki_photo_fast(name: str, wiki_title: str = "") -> str:
-    """Deprecated: dynamic photo fetch disabled in favor of CC placeholders."""
+    """Fetch a real photo from Wikipedia/Wikimedia for a place name.
+    Uses Wikipedia API pageimages to get the main image thumbnail."""
+    if not name and not wiki_title:
+        return ""
+    
+    cache_key = (wiki_title or name).lower().strip()
+    if cache_key in _photo_cache:
+        return _photo_cache[cache_key]
+    
+    queries_to_try = []
+    if wiki_title:
+        queries_to_try.append(wiki_title)
+    if name:
+        queries_to_try.append(name)
+        # Also try without parenthetical disambiguations
+        clean = re.sub(r'\s*\(.*?\)\s*', '', name).strip()
+        if clean and clean != name:
+            queries_to_try.append(clean)
+    
+    for query in queries_to_try:
+        try:
+            url = "https://en.wikipedia.org/w/api.php"
+            params = {
+                "action": "query",
+                "titles": query.replace(" ", "_"),
+                "prop": "pageimages|pageterms",
+                "piprop": "thumbnail",
+                "pithumbsize": 800,
+                "format": "json",
+                "redirects": 1,
+            }
+            async with httpx.AsyncClient(timeout=6, headers=HEADERS) as client:
+                resp = await client.get(url, params=params)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    pages = data.get("query", {}).get("pages", {})
+                    for page_id, page in pages.items():
+                        if page_id == "-1":
+                            continue
+                        thumb = page.get("thumbnail", {}).get("source", "")
+                        if thumb:
+                            _photo_cache[cache_key] = thumb
+                            return thumb
+        except Exception:
+            continue
+    
+    # Fallback: try Wikimedia Commons search
+    for query in queries_to_try[:2]:
+        try:
+            url = "https://en.wikipedia.org/w/api.php"
+            params = {
+                "action": "opensearch",
+                "search": query,
+                "limit": 3,
+                "format": "json",
+            }
+            async with httpx.AsyncClient(timeout=5, headers=HEADERS) as client:
+                resp = await client.get(url, params=params)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    titles = data[1] if len(data) > 1 else []
+                    for title in titles[:2]:
+                        params2 = {
+                            "action": "query",
+                            "titles": title,
+                            "prop": "pageimages",
+                            "piprop": "thumbnail",
+                            "pithumbsize": 800,
+                            "format": "json",
+                            "redirects": 1,
+                        }
+                        resp2 = await client.get(url, params=params2)
+                        if resp2.status_code == 200:
+                            pages = resp2.json().get("query", {}).get("pages", {})
+                            for pid, pg in pages.items():
+                                if pid != "-1":
+                                    thumb = pg.get("thumbnail", {}).get("source", "")
+                                    if thumb:
+                                        _photo_cache[cache_key] = thumb
+                                        return thumb
+        except Exception:
+            continue
+    
+    _photo_cache[cache_key] = ""
     return ""
 
 async def fetch_photos_batch(attractions: List[Dict], city: str) -> None:
-    """Fetch ALL photos in parallel - tries wiki title first, then plain name, then name+city"""
+    """Fetch ALL photos in parallel using Wikipedia API — real place images"""
     tasks = []
     for attr in attractions:
         wiki = attr.get("wiki", "")
         wiki_decoded = unquote(wiki) if wiki else ""
         name = attr.get("name", "")
-        # Try wiki title first (most accurate), fall back to name
-        tasks.append(_try_multiple_wiki_queries([wiki_decoded, name, f"{name} {city}"] if wiki_decoded else [name, f"{name} {city}"]))
+        tasks.append(_try_multiple_wiki_queries(
+            [wiki_decoded, name, f"{name} {city}"] if wiki_decoded else [name, f"{name} {city}"]
+        ))
     
     results = await asyncio.gather(*tasks, return_exceptions=True)
     
@@ -139,6 +223,7 @@ async def fetch_photos_batch(attractions: List[Dict], city: str) -> None:
         if isinstance(result, str) and result:
             attractions[i]["photo"] = result
             attractions[i]["photos"] = [result]
+            attractions[i]["photo_is_placeholder"] = False
         else:
             attractions[i]["photo"] = ""
             attractions[i]["photos"] = []
@@ -150,7 +235,7 @@ async def fetch_missing_photos(attractions: List[Dict], city: str) -> None:
     for i, attr in enumerate(attractions):
         if not attr.get("photo"):
             name = attr.get("name", "")
-            queries = [name, f"{name} {city}", name.split(",")[0].strip()]
+            queries = [name, f"{name} {city}", name.split(",")[0].strip(), f"{name} landmark"]
             tasks.append(_try_multiple_wiki_queries(queries))
             indices.append(i)
     
@@ -163,9 +248,12 @@ async def fetch_missing_photos(attractions: List[Dict], city: str) -> None:
         if isinstance(result, str) and result:
             attractions[idx]["photo"] = result
             attractions[idx]["photos"] = [result]
+            attractions[idx]["photo_is_placeholder"] = False
 
 async def _try_multiple_wiki_queries(queries: List[str]) -> str:
     for q in queries:
+        if not q or not q.strip():
+            continue
         result = await fetch_wiki_photo_fast(q)
         if result:
             return result
@@ -2276,17 +2364,24 @@ async def generate_trip(request: TripRequest):
         
         total_cost = sum(d["daily_cost"] for d in days)
         
-        # ---- Batch-fetch photos for ALL itinerary activities ----
+        # ---- Batch-fetch REAL photos from Wikipedia for ALL itinerary activities ----
         all_activities_for_photos = []
         for day in days:
             for act in day.get("activities", []):
                 if not act.get("photo"):
                     all_activities_for_photos.append(act)
         if all_activities_for_photos:
+            await agent_manager.broadcast_json({"type": "agent_activity", "agent_id": "planner", "message": f"Fetching real Wikipedia photos for {len(all_activities_for_photos)} places...", "status": "working"})
+            await fetch_photos_batch(all_activities_for_photos, city)
+            await fetch_missing_photos(all_activities_for_photos, city)
+            # Apply placeholders only for truly missing photos
             for act in all_activities_for_photos:
-                apply_placeholder_photo(act, act.get("type", "attraction"))
-            photos_loaded_count = sum(1 for d in days for a in d["activities"] if a.get("photo"))
-            await agent_manager.broadcast_json({"type": "agent_activity", "agent_id": "planner", "message": f"Applied {photos_loaded_count} CC placeholder images for activities", "status": "working"})
+                if not act.get("photo"):
+                    apply_placeholder_photo(act, act.get("type", "attraction"))
+            real_photos = sum(1 for a in all_activities_for_photos if a.get("photo") and not a.get("photo_is_placeholder"))
+            placeholder_photos = sum(1 for a in all_activities_for_photos if a.get("photo_is_placeholder"))
+            photos_loaded_count = real_photos + placeholder_photos
+            await agent_manager.broadcast_json({"type": "agent_activity", "agent_id": "planner", "message": f"Loaded {real_photos} real Wikipedia photos + {placeholder_photos} placeholders for activities", "status": "working"})
         
         # ---- MCTS optimisation pass ----
         base_itin = {"days": days, "total_cost": total_cost, "cities": [city]}
@@ -4294,6 +4389,76 @@ async def ai_get_pomdp():
 async def ai_get_dirichlet():
     """Return Dirichlet preference model state."""
     return {"success": True, **ai_engine.dirichlet.get_state()}
+
+
+# ============================================
+# PLACE PHOTO API — fetch real Wikipedia images on demand
+# ============================================
+class PlacePhotoRequest(BaseModel):
+    place_name: str
+    city: str = ""
+
+@app.post("/api/place-photo")
+async def api_place_photo(req: PlacePhotoRequest):
+    """Fetch a real Wikipedia photo for a place. Frontend calls this for each itinerary card."""
+    name = req.place_name.strip()
+    city = req.city.strip()
+    if not name:
+        return {"success": False, "photo": "", "error": "No place name provided"}
+    
+    # Check cache first
+    cache_key = f"{name}_{city}".lower()
+    if cache_key in _photo_cache and _photo_cache[cache_key]:
+        return {"success": True, "photo": _photo_cache[cache_key], "source": "cache"}
+    
+    # Try fetching from Wikipedia
+    queries = [name]
+    if city:
+        queries.append(f"{name} {city}")
+    # Also try cleaned name
+    clean = re.sub(r'\s*\(.*?\)\s*', '', name).strip()
+    if clean and clean != name:
+        queries.append(clean)
+        if city:
+            queries.append(f"{clean} {city}")
+    
+    photo = await _try_multiple_wiki_queries(queries)
+    
+    if photo:
+        _photo_cache[cache_key] = photo
+        return {"success": True, "photo": photo, "source": "wikipedia"}
+    
+    return {"success": False, "photo": "", "source": "not_found"}
+
+@app.post("/api/place-photos-batch")
+async def api_place_photos_batch(places: List[Dict[str, str]]):
+    """Batch fetch Wikipedia photos for multiple places at once."""
+    results = []
+    tasks = []
+    for p in places[:20]:  # limit to 20 at a time
+        name = p.get("name", "").strip()
+        city = p.get("city", "").strip()
+        cache_key = f"{name}_{city}".lower()
+        if cache_key in _photo_cache and _photo_cache[cache_key]:
+            results.append({"name": name, "photo": _photo_cache[cache_key], "cached": True})
+        else:
+            queries = [name]
+            if city:
+                queries.append(f"{name} {city}")
+            tasks.append((name, city, _try_multiple_wiki_queries(queries)))
+    
+    if tasks:
+        fetch_results = await asyncio.gather(*[t[2] for t in tasks], return_exceptions=True)
+        for i, result in enumerate(fetch_results):
+            name, city, _ = tasks[i]
+            cache_key = f"{name}_{city}".lower()
+            if isinstance(result, str) and result:
+                _photo_cache[cache_key] = result
+                results.append({"name": name, "photo": result, "cached": False})
+            else:
+                results.append({"name": name, "photo": "", "cached": False})
+    
+    return {"success": True, "photos": results}
 
 # ============================================
 # WebSocket — real data-driven messages
