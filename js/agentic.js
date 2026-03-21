@@ -32,14 +32,13 @@ const agenticState = {
     paymentAutoTriggered: false,
 };
 
-const DEFAULT_PRICE_LABEL = 'Compare on provider';
-const getPriceLabel = (item) => item?.price_label || DEFAULT_PRICE_LABEL;
+const DEFAULT_PRICE_LABEL = 'Check provider link';
+const getPriceLabel = (item) => item?.price_label || (item?.price ? `₹${Number(item.price).toLocaleString()}` : DEFAULT_PRICE_LABEL);
 const getPriceEstimate = (item) => {
     if (!item) return 0;
-    if (item.price_label) return 0;
     return item?.price ?? item?.price_per_night ?? item?.total_price ?? item?.estimated_price ?? 0;
 };
-const shouldAutoSelect = () => (typeof state !== 'undefined' ? state.autoMode !== false : true);
+const shouldAutoSelect = () => (typeof state !== 'undefined' ? state.autoMode === true : false);
 const pickBestOption = (items, scoreFn) => {
     if (!items?.length) return null;
     return items.reduce((best, item) => (scoreFn(item) > scoreFn(best) ? item : best), items[0]);
@@ -67,6 +66,13 @@ async function resolveBookingCity(placeName) {
 
 // Expose to global scope for inline onclick handlers
 window.agenticState = agenticState;
+window.toggleAutoBooking = function(enabled) {
+    if (typeof state !== 'undefined') {
+        state.autoMode = !!enabled;
+    }
+    const mode = enabled ? 'ON (auto-select)' : 'OFF (manual)';
+    if (typeof showToast === 'function') showToast(`Automation ${mode}`, 'info');
+};
 
 // === STEP MANAGEMENT ===
 const STEPS = ['trip_planned', 'choose_flights', 'choose_trains', 'choose_hotels', 'choose_cabs', 'review_cart', 'payment', 'confirmed'];
@@ -162,7 +168,7 @@ async function startAgenticWizard(dest, duration, budget, data) {
 
     const originMsg = origin ? ` from <strong>${origin}</strong>` : '';
     showAgentPrompt(
-        `Your <strong>${duration}-day ${dest}</strong> itinerary${originMsg} is ready! I can now help you book <strong>flights, trains, hotels, and local transport</strong>. Prices are not live; compare current rates on provider links. What would you like to do first?`,
+        `Your <strong>${duration}-day ${dest}</strong> itinerary${originMsg} is ready! I can now help you book <strong>flights, trains, hotels, and local transport</strong>. Prices include live web hints plus provider links. What would you like to do first?`,
         `<button class="btn btn-primary btn-sm" onclick="agenticSearchFlights()"><i class="fas fa-plane"></i> Search Flights</button>
          <button class="btn btn-sm" style="background:rgba(6,182,212,0.15);color:#06b6d4" onclick="agenticSearchTrains()"><i class="fas fa-train"></i> Search Trains</button>
          <button class="btn btn-sm" style="background:rgba(16,185,129,0.15);color:#10b981" onclick="agenticSearchHotels()"><i class="fas fa-hotel"></i> Search Hotels</button>
@@ -213,7 +219,7 @@ window.agenticSearchFlights = async function() {
             agenticState.tripId = data.trip_id || agenticState.tripId;
             renderFlightResults(data.flights);
             showAgentPrompt(
-                `✈️ <strong>Flight Agent found ${data.flights.length} options!</strong> Prices are placeholders — compare live rates on provider links. Pick one or continue.`,
+                `✈️ <strong>Flight Agent found ${data.flights.length} options!</strong> Prices use live web hints + booking links. Pick any option.`,
                 `<button class="btn btn-sm" style="background:rgba(6,182,212,0.15);color:#06b6d4" onclick="agenticSearchTrains()"><i class="fas fa-train"></i> Search Trains</button>
                  <button class="btn btn-sm" style="background:rgba(16,185,129,0.15);color:#10b981" onclick="agenticSearchHotels()"><i class="fas fa-arrow-right"></i> Skip → Hotels</button>`
             );
@@ -353,7 +359,7 @@ window.agenticSearchHotels = async function() {
             agenticState.results.hotels = data.hotels;
             renderHotelResults(data.hotels);
             showAgentPrompt(
-                `🏨 <strong>Hotel Agent found ${data.hotels.length} options!</strong> Prices are placeholders — compare live rates on provider links. Pick a hotel or skip to transport.`,
+                `🏨 <strong>Hotel Agent found ${data.hotels.length} options!</strong> Prices use live web hints + booking links. Pick a hotel or skip to transport.`,
                 `<button class="btn btn-sm" style="background:rgba(245,158,11,0.15);color:#f59e0b" onclick="agenticSearchCabs()"><i class="fas fa-arrow-right"></i> Skip → Transport</button>`
             );
             if (shouldAutoSelect()) {
@@ -481,7 +487,7 @@ window.agenticSearchCabs = async function() {
             agenticState.results.cabs = data.cabs;
             renderCabResults(data.cabs);
             showAgentPrompt(
-                `🚗 <strong>Transport Agent found ${data.cabs.length} options!</strong> Prices are placeholders — compare live rates on provider links. Select one or go to review.`,
+                `🚗 <strong>Transport Agent found ${data.cabs.length} options!</strong> Prices use live web hints + booking links. Select one or go to review.`,
                 `<button class="btn btn-sm" style="background:rgba(139,92,246,0.15);color:#8b5cf6" onclick="agenticSkipToReview()"><i class="fas fa-arrow-right"></i> Skip → Review</button>`
             );
             if (shouldAutoSelect()) {
@@ -527,7 +533,7 @@ function renderCabResults(cabs) {
             </div>
             <div class="cab-price">
                 <div class="cab-price-val">${getPriceLabel(c)}</div>
-                <div style="font-size:0.65rem;color:var(--text-3)">Compare on provider</div>
+                <div style="font-size:0.65rem;color:var(--text-3)">Includes live web hint</div>
             </div>
         </div>
     `).join('');
@@ -587,7 +593,7 @@ window.agenticSearchTrains = async function() {
             agenticState.results.trains = data.trains;
             renderTrainResults(data.trains);
             showAgentPrompt(
-                `🚂 <strong>Found ${data.trains.length} trains!</strong> Prices are placeholders — compare live rates on provider links. Select one or proceed.`,
+                `🚂 <strong>Found ${data.trains.length} trains!</strong> Prices use live web hints + booking links. Select one or proceed.`,
                 `<button class="btn btn-sm" style="background:rgba(16,185,129,0.15);color:#10b981" onclick="agenticSearchHotels()"><i class="fas fa-arrow-right"></i> Next → Hotels</button>`
             );
             if (shouldAutoSelect()) {
@@ -755,7 +761,7 @@ function renderCart() {
         </div>
     `).join('');
 
-    const hasLivePrices = agenticState.cart.every(c => typeof c.price === 'number' && c.price > 0 && !c.price_label);
+    const hasLivePrices = agenticState.cart.every(c => typeof c.price === 'number' && c.price > 0);
     const total = agenticState.cart.reduce((s, c) => s + (c.price || 0), 0);
     if (totalEl) {
         totalEl.innerHTML = hasLivePrices
@@ -805,7 +811,7 @@ window.agenticProceedToPayment = function() {
     const panel = document.getElementById('paymentPanel');
     if (panel) panel.style.display = 'block';
 
-    const hasLivePrices = agenticState.cart.every(c => typeof c.price === 'number' && c.price > 0 && !c.price_label);
+    const hasLivePrices = agenticState.cart.every(c => typeof c.price === 'number' && c.price > 0);
     const total = agenticState.cart.reduce((s, c) => s + (c.price || 0), 0);
     const summaryEl = document.getElementById('paymentSummaryTotal');
     if (summaryEl) {
@@ -827,7 +833,7 @@ window.agenticProceedToPayment = function() {
     showAgentPrompt(
         hasLivePrices
             ? `💳 Secure payment for <strong>₹${total.toLocaleString()}</strong>. Choose your preferred payment method below.`
-            : `💳 Prices are placeholders. Simulate payment here, then complete checkout on provider sites.`,
+            : `💳 Some items may still need provider confirmation. You can simulate payment here, then complete checkout on provider sites.`,
         ''
     );
 
@@ -863,7 +869,7 @@ window.selectPaymentMethod = function(method, el) {
 };
 
 window.agenticProcessPayment = async function() {
-    const hasLivePrices = agenticState.cart.every(c => typeof c.price === 'number' && c.price > 0 && !c.price_label);
+    const hasLivePrices = agenticState.cart.every(c => typeof c.price === 'number' && c.price > 0);
     const total = agenticState.cart.reduce((s, c) => s + (c.price || 0), 0);
     const simulate = !hasLivePrices;
     if (hasLivePrices && total === 0) { showToast('Nothing to pay', 'warning'); return; }
@@ -938,7 +944,7 @@ function agenticShowConfirmation(paymentResults) {
 
     const ctx = agenticState.context || {};
     const sel = agenticState.selections;
-    const hasLivePrices = agenticState.cart.every(c => typeof c.price === 'number' && c.price > 0 && !c.price_label);
+    const hasLivePrices = agenticState.cart.every(c => typeof c.price === 'number' && c.price > 0);
     const total = agenticState.cart.reduce((s, c) => s + (c.price || 0), 0);
 
     const msg = document.getElementById('confirmationMsg');

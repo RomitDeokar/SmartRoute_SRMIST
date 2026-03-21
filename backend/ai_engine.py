@@ -747,22 +747,46 @@ def _two_opt(route: List[Dict], max_passes: int = 2) -> List[Dict]:
     return best
 
 
-def _nearest_neighbor_order(places: List[Dict]) -> List[Dict]:
+def _dijkstra_order(places: List[Dict]) -> List[Dict]:
     if len(places) <= 2:
         return places
-    ordered = [places[0]]
-    remaining = list(places[1:])
+    n = len(places)
+    graph = [[0.0] * n for _ in range(n)]
+    for i in range(n):
+        for j in range(i + 1, n):
+            d = _haversine_km(places[i].get("lat", 0), places[i].get("lon", 0),
+                              places[j].get("lat", 0), places[j].get("lon", 0))
+            graph[i][j] = d
+            graph[j][i] = d
+    remaining = set(range(1, n))
+    order = [0]
+    current = 0
     while remaining:
-        cur = ordered[-1]
-        clat, clon = cur.get("lat", 0), cur.get("lon", 0)
-        best_idx, best_dist = 0, float("inf")
-        for i, p in enumerate(remaining):
-            d = _haversine_km(clat, clon, p.get("lat", 0), p.get("lon", 0))
-            if d < best_dist:
-                best_dist = d
-                best_idx = i
-        ordered.append(remaining.pop(best_idx))
-    return _two_opt(ordered)
+        dist = [float("inf")] * n
+        seen = [False] * n
+        dist[current] = 0.0
+        for _ in range(n):
+            u = -1
+            best = float("inf")
+            for i in range(n):
+                if not seen[i] and dist[i] < best:
+                    best, u = dist[i], i
+            if u == -1:
+                break
+            seen[u] = True
+            for v in range(n):
+                w = graph[u][v]
+                if w > 0 and not seen[v] and dist[u] + w < dist[v]:
+                    dist[v] = dist[u] + w
+        nxt = min(remaining, key=lambda idx: dist[idx])
+        order.append(nxt)
+        remaining.remove(nxt)
+        current = nxt
+    return _two_opt([places[i] for i in order])
+
+
+def _nearest_neighbor_order(places: List[Dict]) -> List[Dict]:
+    return _dijkstra_order(places)
 
 
 # ============================================================================
