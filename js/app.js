@@ -21,7 +21,7 @@ const state = {
     bayesian: { cultural: { a: 2, b: 2 }, adventure: { a: 2, b: 2 }, food: { a: 3, b: 1 }, relaxation: { a: 1, b: 3 }, shopping: { a: 1, b: 2 } },
     budget: { total: 15000, used: 0 },
     chatOpen: false, chatHistory: [], currentDest: '',
-    generating: false, autoMode: true,
+    generating: false, autoMode: false,
     userLocation: null,  // For live trip tracking
     tripActive: false,   // Whether user is on an active trip
     weatherData: [],      // Real weather forecasts

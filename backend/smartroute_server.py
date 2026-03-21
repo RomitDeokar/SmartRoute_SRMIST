@@ -71,7 +71,7 @@ PHOTO_PLACEHOLDERS = {
     "transport": "https://sspark.genspark.ai/cfimages?u1=sWq%2BOExuKgpkCtgaT9tcHlzNyhCsVzC2lS6s59llKVZSqnKnD2dJrg%2B%2BSG7zavFvPsb9UVpgiw3ffegUKH7aJfayU8U%2B5V4Ysx8vIK18iIo%2BXo1XtRmL2i1HBax1iuXDhmlynJ6m9AkUFX68%2Bv9o%2FlkeBGJOpR3Ll1M8j70%3D&u2=UO7WYGQok6WUsISo&width=2560",
 }
 
-PHOTO_PLACEHOLDER_CREDIT = "Wikimedia Commons (Creative Commons licensed)"
+PHOTO_PLACEHOLDER_CREDIT = "Google Images / provider fallback"
 
 PLACEHOLDER_TYPE_MAP = {
     "museum": "museum",
@@ -117,35 +117,57 @@ def apply_placeholder_photo(item: Dict, place_type: str) -> None:
         item["photo_credit"] = PHOTO_PLACEHOLDER_CREDIT
 
 # ============================================
-# PHOTO FETCHING — Real Wikipedia/Wikimedia Commons images
+# PHOTO FETCHING — Google Images first (Wikipedia fallback)
 # ============================================
-async def fetch_wiki_photo_fast(name: str, wiki_title: str = "") -> str:
-    """Fetch a real photo from Wikipedia/Wikimedia for a place name.
-    Uses Wikipedia API pageimages to get the main image thumbnail."""
-    if not name and not wiki_title:
+async def fetch_google_photo_fast(name: str, city: str = "") -> str:
+    """Fetch a place image using Google Images search result thumbnails."""
+    if not name:
         return ""
-    
-    cache_key = (wiki_title or name).lower().strip()
+
+    cache_key = f"google::{name}::{city}".lower().strip()
     if cache_key in _photo_cache:
         return _photo_cache[cache_key]
-    
-    queries_to_try = []
-    if wiki_title:
-        queries_to_try.append(wiki_title)
-    if name:
-        queries_to_try.append(name)
-        # Also try without parenthetical disambiguations
-        clean = re.sub(r'\s*\(.*?\)\s*', '', name).strip()
-        if clean and clean != name:
-            queries_to_try.append(clean)
-    
+
+    clean_name = re.sub(r'\s*\(.*?\)\s*', '', name).strip()
+    queries_to_try = [f"{clean_name} {city}".strip(), f"{clean_name} landmark", clean_name]
+
+    img_re = re.compile(r"https://encrypted-tbn0\.gstatic\.com/images\?q=tbn:[^\"'\\]+")
     for query in queries_to_try:
+        try:
+            async with httpx.AsyncClient(timeout=6, headers=HEADERS) as client:
+                resp = await client.get(
+                    "https://www.google.com/search",
+                    params={"tbm": "isch", "q": query},
+                )
+                if resp.status_code == 200:
+                    html = resp.text
+                    match = img_re.search(html)
+                    if match:
+                        url = match.group(0).replace("\\u003d", "=").replace("\\u0026", "&")
+                        _photo_cache[cache_key] = url
+                        return url
+        except Exception:
+            continue
+
+    _photo_cache[cache_key] = ""
+    return ""
+
+async def fetch_wiki_photo_fast(name: str, wiki_title: str = "") -> str:
+    """Fallback photo fetcher from Wikipedia/Wikimedia."""
+    if not name and not wiki_title:
+        return ""
+    cache_key = f"wiki::{wiki_title or name}".lower().strip()
+    if cache_key in _photo_cache:
+        return _photo_cache[cache_key]
+    for query in [wiki_title, name, re.sub(r'\s*\(.*?\)\s*', '', name).strip()]:
+        if not query:
+            continue
         try:
             url = "https://en.wikipedia.org/w/api.php"
             params = {
                 "action": "query",
                 "titles": query.replace(" ", "_"),
-                "prop": "pageimages|pageterms",
+                "prop": "pageimages",
                 "piprop": "thumbnail",
                 "pithumbsize": 800,
                 "format": "json",
@@ -154,55 +176,15 @@ async def fetch_wiki_photo_fast(name: str, wiki_title: str = "") -> str:
             async with httpx.AsyncClient(timeout=6, headers=HEADERS) as client:
                 resp = await client.get(url, params=params)
                 if resp.status_code == 200:
-                    data = resp.json()
-                    pages = data.get("query", {}).get("pages", {})
-                    for page_id, page in pages.items():
-                        if page_id == "-1":
-                            continue
-                        thumb = page.get("thumbnail", {}).get("source", "")
-                        if thumb:
-                            _photo_cache[cache_key] = thumb
-                            return thumb
+                    pages = resp.json().get("query", {}).get("pages", {})
+                    for pid, pg in pages.items():
+                        if pid != "-1":
+                            thumb = pg.get("thumbnail", {}).get("source", "")
+                            if thumb:
+                                _photo_cache[cache_key] = thumb
+                                return thumb
         except Exception:
             continue
-    
-    # Fallback: try Wikimedia Commons search
-    for query in queries_to_try[:2]:
-        try:
-            url = "https://en.wikipedia.org/w/api.php"
-            params = {
-                "action": "opensearch",
-                "search": query,
-                "limit": 3,
-                "format": "json",
-            }
-            async with httpx.AsyncClient(timeout=5, headers=HEADERS) as client:
-                resp = await client.get(url, params=params)
-                if resp.status_code == 200:
-                    data = resp.json()
-                    titles = data[1] if len(data) > 1 else []
-                    for title in titles[:2]:
-                        params2 = {
-                            "action": "query",
-                            "titles": title,
-                            "prop": "pageimages",
-                            "piprop": "thumbnail",
-                            "pithumbsize": 800,
-                            "format": "json",
-                            "redirects": 1,
-                        }
-                        resp2 = await client.get(url, params=params2)
-                        if resp2.status_code == 200:
-                            pages = resp2.json().get("query", {}).get("pages", {})
-                            for pid, pg in pages.items():
-                                if pid != "-1":
-                                    thumb = pg.get("thumbnail", {}).get("source", "")
-                                    if thumb:
-                                        _photo_cache[cache_key] = thumb
-                                        return thumb
-        except Exception:
-            continue
-    
     _photo_cache[cache_key] = ""
     return ""
 
@@ -215,7 +197,7 @@ async def fetch_photos_batch(attractions: List[Dict], city: str) -> None:
         name = attr.get("name", "")
         tasks.append(_try_multiple_wiki_queries(
             [wiki_decoded, name, f"{name} {city}"] if wiki_decoded else [name, f"{name} {city}"]
-        ))
+        , city))
     
     results = await asyncio.gather(*tasks, return_exceptions=True)
     
@@ -236,7 +218,7 @@ async def fetch_missing_photos(attractions: List[Dict], city: str) -> None:
         if not attr.get("photo"):
             name = attr.get("name", "")
             queries = [name, f"{name} {city}", name.split(",")[0].strip(), f"{name} landmark"]
-            tasks.append(_try_multiple_wiki_queries(queries))
+            tasks.append(_try_multiple_wiki_queries(queries, city))
             indices.append(i)
     
     if not tasks:
@@ -250,10 +232,13 @@ async def fetch_missing_photos(attractions: List[Dict], city: str) -> None:
             attractions[idx]["photos"] = [result]
             attractions[idx]["photo_is_placeholder"] = False
 
-async def _try_multiple_wiki_queries(queries: List[str]) -> str:
+async def _try_multiple_wiki_queries(queries: List[str], city: str = "") -> str:
     for q in queries:
         if not q or not q.strip():
             continue
+        result = await fetch_google_photo_fast(q, city)
+        if result:
+            return result
         result = await fetch_wiki_photo_fast(q)
         if result:
             return result
@@ -2236,24 +2221,57 @@ async def generate_trip(request: TripRequest):
                     break
             return best
         
-        def _nearest_neighbor_order(places):
-            """Nearest-neighbor + 2-opt: reorder places to minimize travel distance"""
+        def _dijkstra_distance_matrix(places):
+            n = len(places)
+            graph = [[0.0] * n for _ in range(n)]
+            for i in range(n):
+                for j in range(i + 1, n):
+                    d = _haversine_km(
+                        places[i].get("lat", 0), places[i].get("lon", 0),
+                        places[j].get("lat", 0), places[j].get("lon", 0)
+                    )
+                    graph[i][j] = d
+                    graph[j][i] = d
+            return graph
+
+        def _dijkstra_shortest(graph, src):
+            n = len(graph)
+            dist = [float("inf")] * n
+            visited = [False] * n
+            dist[src] = 0.0
+            for _ in range(n):
+                u = -1
+                best = float("inf")
+                for i in range(n):
+                    if not visited[i] and dist[i] < best:
+                        best = dist[i]
+                        u = i
+                if u == -1:
+                    break
+                visited[u] = True
+                for v in range(n):
+                    w = graph[u][v]
+                    if not visited[v] and w > 0:
+                        cand = dist[u] + w
+                        if cand < dist[v]:
+                            dist[v] = cand
+            return dist
+
+        def _dijkstra_route_order(places):
+            """Use Dijkstra-based nearest expansion + 2-opt refinement."""
             if len(places) <= 2:
                 return places
-            ordered = [places[0]]
-            remaining = list(places[1:])
+            graph = _dijkstra_distance_matrix(places)
+            remaining = set(range(1, len(places)))
+            order = [0]
+            current = 0
             while remaining:
-                current = ordered[-1]
-                curr_lat = current.get("lat", 0)
-                curr_lon = current.get("lon", 0)
-                nearest_idx = 0
-                nearest_dist = float('inf')
-                for idx, p in enumerate(remaining):
-                    d = _haversine_km(curr_lat, curr_lon, p.get("lat", 0), p.get("lon", 0))
-                    if d < nearest_dist:
-                        nearest_dist = d
-                        nearest_idx = idx
-                ordered.append(remaining.pop(nearest_idx))
+                dist = _dijkstra_shortest(graph, current)
+                nxt = min(remaining, key=lambda idx: dist[idx])
+                order.append(nxt)
+                remaining.remove(nxt)
+                current = nxt
+            ordered = [places[i] for i in order]
             return _two_opt(ordered)
         
         sorted_attractions = sorted(attractions, key=lambda x: (-x.get("quality", 1), -x.get("rating", 0)))
@@ -2286,8 +2304,8 @@ async def generate_trip(request: TripRequest):
                     if attr["name"] not in {s["name"] for s in selected}:
                         selected.append(attr)
             
-            # Phase 2: Reorder this day's attractions using nearest-neighbor for efficient routing
-            selected = _nearest_neighbor_order(selected)
+            # Phase 2: Reorder attractions using Dijkstra shortest-path expansion for efficient routing
+            selected = _dijkstra_route_order(selected)
             all_day_selections.append(selected)
         
         for day_num in range(duration):
@@ -2381,7 +2399,7 @@ async def generate_trip(request: TripRequest):
             real_photos = sum(1 for a in all_activities_for_photos if a.get("photo") and not a.get("photo_is_placeholder"))
             placeholder_photos = sum(1 for a in all_activities_for_photos if a.get("photo_is_placeholder"))
             photos_loaded_count = real_photos + placeholder_photos
-            await agent_manager.broadcast_json({"type": "agent_activity", "agent_id": "planner", "message": f"Loaded {real_photos} real Wikipedia photos + {placeholder_photos} placeholders for activities", "status": "working"})
+            await agent_manager.broadcast_json({"type": "agent_activity", "agent_id": "planner", "message": f"Loaded {real_photos} real Google/Wiki photos + {placeholder_photos} placeholders for activities", "status": "working"})
         
         # ---- MCTS optimisation pass ----
         base_itin = {"days": days, "total_cost": total_cost, "cities": [city]}
@@ -2490,8 +2508,8 @@ async def generate_trip(request: TripRequest):
                 "attractions_count": len(attractions),
                 "photos_loaded": sum(1 for d in days for a in d["activities"] if a.get("photo")),
                 "source": "api_merged (Overpass + OpenTripMap + Wikipedia)",
-                "photo_disclaimer": "Photos are Creative Commons placeholders; some places may have no photo.",
-                "pricing_disclaimer": "Booking prices are not live. Compare current rates on provider links."
+                "photo_disclaimer": "Photos are fetched from Google Images with fallback placeholders; some places may have no photo.",
+                "pricing_disclaimer": "Prices use live web hints and provider links; final fare is on provider checkout."
             }
         }
     except Exception as e:
@@ -2966,6 +2984,9 @@ async def _search_flights(req: FlightSearchRequest) -> List[Dict]:
     elif req.cabin_class == "first": base *= 6
 
     flights = []
+    live_hint = await fetch_live_price_hint(
+        f"{origin_city} to {dest_city} flight ticket price {req.departure_date or ''}"
+    )
     dep_times = ["06:00", "08:30", "10:15", "12:40", "14:55", "17:20", "20:05", "22:30"]
     # Deterministic selection based on route
     route_seed = abs(hash(f"{origin_code}{dest_code}"))
@@ -2989,6 +3010,9 @@ async def _search_flights(req: FlightSearchRequest) -> List[Dict]:
         # Each airline has its own price variation (deterministic per airline)
         price_mult = [0.92, 1.0, 0.88, 1.15, 1.05, 0.95][i % 6]
         price = round(base * price_mult, -1)
+        if live_hint.get("price"):
+            variance = (i - 2) * 450
+            price = max(1500, live_hint["price"] + variance)
         stops = 0 if dur_h <= 3 else (1 if i % 3 != 0 else 0)
         
         # Build provider booking URLs
@@ -3001,11 +3025,12 @@ async def _search_flights(req: FlightSearchRequest) -> List[Dict]:
             "ixigo": f"https://www.ixigo.com/search/result/flight/{origin_code}/{dest_code}/{dep_date}/1/0/0/{req.cabin_class[0].upper()}/1",
         }
         
+        flight_seed = abs(hash(f"{airline['code']}{origin_code}{dest_code}")) % 900
         flights.append({
             "id": _gen_id("FL"),
             "airline": airline["name"],
             "airline_code": airline["code"],
-            "flight_no": f'{airline["code"]}{100 + abs(hash(f"{airline["code"]}{origin_code}{dest_code}")) % 900}',
+            "flight_no": f'{airline["code"]}{100 + flight_seed}',
             "origin": origin_code,
             "origin_city": origin_city,
             "destination": dest_code,
@@ -3015,8 +3040,10 @@ async def _search_flights(req: FlightSearchRequest) -> List[Dict]:
             "duration": f"{dur_h}h {dur_m}m",
             "stops": stops,
             "stop_info": "" if stops == 0 else ["via Mumbai", "via Delhi", "via Bangalore", "via Hyderabad"][(route_seed + i) % 4],
-            "price_label": "Compare on provider",
-            "price_note": "Live fares are shown on the provider site",
+            "price": int(price),
+            "price_label": f"₹{int(price):,}",
+            "price_note": "Live market hint from web snippets + provider links",
+            "live_price_source": live_hint.get("url") or booking_urls["google_flights"],
             "cabin_class": req.cabin_class,
             "seats_left": 4 + abs(hash(f"{airline['code']}{dep}")) % 25,
             "baggage": "15 kg" if req.cabin_class == "economy" else "30 kg",
@@ -3085,6 +3112,9 @@ async def _search_hotels(req: HotelSearchRequest) -> List[Dict]:
                     "Airport shuttle", "Room service", "Parking", "Air conditioning",
                     "Bar/Lounge", "Restaurant", "24hr Front Desk", "Laundry", "EV Charging"]
     hotels = []
+    live_hint = await fetch_live_price_hint(
+        f"{req.destination} hotel price per night {req.check_in}"
+    )
     # Deterministic selection based on destination
     dest_seed = abs(hash(req.destination))
     n_hotels = min(len(pool), 6)
@@ -3112,12 +3142,19 @@ async def _search_hotels(req: HotelSearchRequest) -> List[Dict]:
             "trivago": f"https://www.trivago.in/en-IN/srl?search={dest_enc}",
         }
         
+        base_price = h["base"]
+        if live_hint.get("price"):
+            base_price = max(700, int(live_hint["price"] * (0.65 + idx * 0.12)))
+        total_price = base_price * nights
         hotels.append({
             "id": _gen_id("HT"),
             "name": f'{h["name"]} {req.destination}',
             "stars": stars,
-            "price_label": "Compare on provider",
-            "price_note": "Live rates are shown on provider sites",
+            "price_per_night": int(base_price),
+            "total_price": int(total_price),
+            "price_label": f"₹{int(base_price):,}",
+            "price_note": "Live market hint from web snippets + provider links",
+            "live_price_source": live_hint.get("url") or h.get("booking_tpl", ""),
             "nights": nights,
             "check_in": req.check_in,
             "check_out": req.check_out,
@@ -3161,6 +3198,7 @@ async def _search_cabs(req: CabSearchRequest) -> List[Dict]:
     }
     pool = cab_types.get(req.cab_type, cab_types["sedan"])
     cabs = []
+    live_hint = await fetch_live_price_hint(f"{req.destination} cab fare for {req.duration_hours} hour")
     for idx, c in enumerate(pool):
         # Deterministic km estimate: ~25 km per hour of city driving
         est_km = req.duration_hours * 25
@@ -3169,13 +3207,18 @@ async def _search_cabs(req: CabSearchRequest) -> List[Dict]:
         all_features = ["AC", "GPS", "Music system", "Water bottle", "Charger", "Child seat"]
         n_feat = 3 + (idx % 3)
         
+        est_total = int(c["base"] + c["per_km"] * est_km)
+        if live_hint.get("price"):
+            est_total = max(120, int(live_hint["price"] * (0.7 + 0.1 * idx)))
         cabs.append({
             "id": _gen_id("CB"),
             "provider": c["provider"],
             "icon": c["icon"],
             "cab_type": req.cab_type,
-            "price_label": "Compare on provider",
-            "price_note": "Live fares are shown on provider sites",
+            "price": est_total,
+            "price_label": f"₹{est_total:,}",
+            "price_note": "Live market hint from web snippets + provider links",
+            "live_price_source": live_hint.get("url") or _get_cab_booking_url(c["provider"], req.destination or ""),
             "duration_hours": req.duration_hours,
             "estimated_km": est_km,
             "per_km_rate": c["per_km"],
@@ -3300,6 +3343,9 @@ async def _search_trains(req: TrainSearchRequest) -> List[Dict]:
     n_trains = min(len(available), 5)
     trains = []
     
+    live_hint = await fetch_live_price_hint(
+        f"{origin_city} to {dest_city} train ticket {req.train_class} fare {req.departure_date or ''}"
+    )
     for i in range(n_trains):
         train = available[i % len(available)]
         
@@ -3331,6 +3377,8 @@ async def _search_trains(req: TrainSearchRequest) -> List[Dict]:
         else:
             mult = train["class_mult"].get(req.train_class, 1.0)
             price = round(train["base"] * mult * req.passengers, -1)
+        if live_hint.get("price"):
+            price = max(100, int(live_hint["price"] * (0.82 + i * 0.08)))
         
         # Use known train number/name if available, else generate deterministic
         if i < len(known):
@@ -3391,8 +3439,10 @@ async def _search_trains(req: TrainSearchRequest) -> List[Dict]:
             "day_of_arrival": "+1" if dep_h + dur_h >= 24 else "Same day",
             "train_class": req.train_class,
             "available_classes": avail_classes,
-            "price_label": "Compare on provider",
-            "price_note": "Live fares are shown on provider sites",
+            "price": int(price),
+            "price_label": f"₹{int(price):,}",
+            "price_note": "Live market hint from web snippets + provider links",
+            "live_price_source": live_hint.get("url") or booking_urls["irctc"],
             "availability": availability,
             "pantry": train["speed"] == "fast",
             "stops": stops,
@@ -3408,6 +3458,40 @@ async def _search_trains(req: TrainSearchRequest) -> List[Dict]:
 
 def _quote_safe(s: str) -> str:
     return quote(s.replace(" ", "+"))
+
+
+def _extract_rupee_price(text: str) -> Optional[int]:
+    patterns = [
+        r"₹\s?([0-9][0-9,]{2,})",
+        r"Rs\.?\s?([0-9][0-9,]{2,})",
+        r"INR\s?([0-9][0-9,]{2,})",
+    ]
+    for pat in patterns:
+        m = re.search(pat, text or "", re.IGNORECASE)
+        if m:
+            try:
+                return int(m.group(1).replace(",", ""))
+            except Exception:
+                continue
+    return None
+
+
+async def fetch_live_price_hint(query: str) -> Dict[str, Any]:
+    """Lightweight web hint for current market prices from public search snippets."""
+    try:
+        async with httpx.AsyncClient(timeout=8, headers=HEADERS, follow_redirects=True) as client:
+            resp = await client.get("https://duckduckgo.com/html/", params={"q": query})
+            html = resp.text if resp.status_code == 200 else ""
+            price = _extract_rupee_price(html)
+            result_url = ""
+            m = re.search(r'nofollow" class="result__a" href="([^"]+)"', html)
+            if m:
+                result_url = m.group(1)
+            if price:
+                return {"price": price, "url": result_url}
+    except Exception:
+        pass
+    return {"price": None, "url": ""}
 
 # ---------- Payment processing (simulated) ----------
 def _process_payment(req: PaymentRequest) -> Dict:
@@ -3856,7 +3940,7 @@ async def search_flights(req: FlightSearchRequest):
         "count": len(flights),
         "search_params": {"origin": req.origin, "destination": req.destination, "date": req.departure_date, "class": req.cabin_class},
         "agent_message": f"Found {len(flights)} flight options to {req.destination}. Compare live prices on the provider links." if flights else "No flights found",
-        "pricing_disclaimer": "Prices are not live. Compare current rates on provider links.",
+        "pricing_disclaimer": "Prices use live web hints and provider links; final fare is on provider checkout.",
         "elapsed_seconds": elapsed,
         "next_step": "choose_hotels",
         "next_prompt": f"Great! I found {len(flights)} flight options. Select one, or I can search hotels for {req.destination} next.",
@@ -3879,7 +3963,7 @@ async def search_hotels(req: HotelSearchRequest):
         "count": len(hotels),
         "search_params": {"destination": req.destination, "check_in": req.check_in, "check_out": req.check_out},
         "agent_message": f"Found {len(hotels)} hotel options. Compare live prices on provider links. Top rated: {best['name']} ({best['rating']}⭐)." if best else "No hotels found",
-        "pricing_disclaimer": "Prices are not live. Compare current rates on provider links.",
+        "pricing_disclaimer": "Prices use live web hints and provider links; final fare is on provider checkout.",
         "elapsed_seconds": elapsed,
         "next_step": "choose_cabs",
         "next_prompt": f"Hotel options ready! Pick your stay, then I'll find local transport.",
@@ -3898,7 +3982,7 @@ async def search_cabs(req: CabSearchRequest):
         "count": len(cabs),
         "search_params": {"destination": req.destination, "type": req.cab_type, "hours": req.duration_hours},
         "agent_message": f"Found {len(cabs)} cab options. Compare live fares on provider links." if cabs else "No cabs found",
-        "pricing_disclaimer": "Prices are not live. Compare current rates on provider links.",
+        "pricing_disclaimer": "Prices use live web hints and provider links; final fare is on provider checkout.",
         "elapsed_seconds": elapsed,
         "next_step": "review_cart",
         "next_prompt": "Transport sorted! Ready to review your complete booking?",
@@ -3922,7 +4006,7 @@ async def search_trains(req: TrainSearchRequest):
             "passengers": req.passengers
         },
         "agent_message": f"Found {len(trains)} trains. Compare live fares on provider links." if cheapest else "No trains found on this route",
-        "pricing_disclaimer": "Prices are not live. Compare current rates on provider links.",
+        "pricing_disclaimer": "Prices use live web hints and provider links; final fare is on provider checkout.",
         "elapsed_seconds": elapsed,
         "next_step": "choose_hotels",
         "next_prompt": "Great train options! Now let's find you a place to stay.",
@@ -4400,7 +4484,7 @@ class PlacePhotoRequest(BaseModel):
 
 @app.post("/api/place-photo")
 async def api_place_photo(req: PlacePhotoRequest):
-    """Fetch a real Wikipedia photo for a place. Frontend calls this for each itinerary card."""
+    """Fetch a place photo (Google Images first, Wikipedia fallback)."""
     name = req.place_name.strip()
     city = req.city.strip()
     if not name:
@@ -4411,7 +4495,7 @@ async def api_place_photo(req: PlacePhotoRequest):
     if cache_key in _photo_cache and _photo_cache[cache_key]:
         return {"success": True, "photo": _photo_cache[cache_key], "source": "cache"}
     
-    # Try fetching from Wikipedia
+    # Try fetching from Google Images (fallback to Wikipedia)
     queries = [name]
     if city:
         queries.append(f"{name} {city}")
@@ -4422,17 +4506,17 @@ async def api_place_photo(req: PlacePhotoRequest):
         if city:
             queries.append(f"{clean} {city}")
     
-    photo = await _try_multiple_wiki_queries(queries)
+    photo = await _try_multiple_wiki_queries(queries, city)
     
     if photo:
         _photo_cache[cache_key] = photo
-        return {"success": True, "photo": photo, "source": "wikipedia"}
+        return {"success": True, "photo": photo, "source": "google_or_wikipedia"}
     
     return {"success": False, "photo": "", "source": "not_found"}
 
 @app.post("/api/place-photos-batch")
 async def api_place_photos_batch(places: List[Dict[str, str]]):
-    """Batch fetch Wikipedia photos for multiple places at once."""
+    """Batch fetch place photos (Google Images first, Wikipedia fallback)."""
     results = []
     tasks = []
     for p in places[:20]:  # limit to 20 at a time
@@ -4445,7 +4529,7 @@ async def api_place_photos_batch(places: List[Dict[str, str]]):
             queries = [name]
             if city:
                 queries.append(f"{name} {city}")
-            tasks.append((name, city, _try_multiple_wiki_queries(queries)))
+            tasks.append((name, city, _try_multiple_wiki_queries(queries, city)))
     
     if tasks:
         fetch_results = await asyncio.gather(*[t[2] for t in tasks], return_exceptions=True)
