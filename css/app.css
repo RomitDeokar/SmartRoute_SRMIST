@@ -283,11 +283,14 @@ a {
     border: 1px solid var(--glass-border);
     border-radius: var(--radius);
     padding: 18px;
+    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.16);
     transition: var(--transition);
 }
 
 .panel:hover {
     border-color: rgba(102, 126, 234, 0.25);
+    transform: translateY(-2px);
+    box-shadow: 0 16px 34px rgba(0, 0, 0, 0.24);
 }
 
 .panel-title {

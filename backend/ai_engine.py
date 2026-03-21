@@ -747,22 +747,50 @@ def _two_opt(route: List[Dict], max_passes: int = 2) -> List[Dict]:
     return best
 
 
-def _nearest_neighbor_order(places: List[Dict]) -> List[Dict]:
+def _dijkstra_order(places: List[Dict]) -> List[Dict]:
     if len(places) <= 2:
         return places
-    ordered = [places[0]]
-    remaining = list(places[1:])
+    valid = [p for p in places if abs(p.get("lat", 0)) > 0.001 and abs(p.get("lon", 0)) > 0.001]
+    invalid = [p for p in places if p not in valid]
+    if len(valid) <= 2:
+        return valid + invalid
+    n = len(valid)
+    graph = [[0.0] * n for _ in range(n)]
+    for i in range(n):
+        for j in range(i + 1, n):
+            d = _haversine_km(valid[i].get("lat", 0), valid[i].get("lon", 0),
+                              valid[j].get("lat", 0), valid[j].get("lon", 0))
+            graph[i][j] = d
+            graph[j][i] = d
+    remaining = set(range(1, n))
+    order = [0]
+    current = 0
     while remaining:
-        cur = ordered[-1]
-        clat, clon = cur.get("lat", 0), cur.get("lon", 0)
-        best_idx, best_dist = 0, float("inf")
-        for i, p in enumerate(remaining):
-            d = _haversine_km(clat, clon, p.get("lat", 0), p.get("lon", 0))
-            if d < best_dist:
-                best_dist = d
-                best_idx = i
-        ordered.append(remaining.pop(best_idx))
-    return _two_opt(ordered)
+        dist = [float("inf")] * n
+        seen = [False] * n
+        dist[current] = 0.0
+        for _ in range(n):
+            u = -1
+            best = float("inf")
+            for i in range(n):
+                if not seen[i] and dist[i] < best:
+                    best, u = dist[i], i
+            if u == -1:
+                break
+            seen[u] = True
+            for v in range(n):
+                w = graph[u][v]
+                if w > 0 and not seen[v] and dist[u] + w < dist[v]:
+                    dist[v] = dist[u] + w
+        nxt = min(remaining, key=lambda idx: dist[idx])
+        order.append(nxt)
+        remaining.remove(nxt)
+        current = nxt
+    return _two_opt([valid[i] for i in order]) + invalid
+
+
+def _nearest_neighbor_order(places: List[Dict]) -> List[Dict]:
+    return _dijkstra_order(places)
 
 
 # ============================================================================
