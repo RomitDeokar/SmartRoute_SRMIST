@@ -750,12 +750,16 @@ def _two_opt(route: List[Dict], max_passes: int = 2) -> List[Dict]:
 def _dijkstra_order(places: List[Dict]) -> List[Dict]:
     if len(places) <= 2:
         return places
-    n = len(places)
+    valid = [p for p in places if abs(p.get("lat", 0)) > 0.001 and abs(p.get("lon", 0)) > 0.001]
+    invalid = [p for p in places if p not in valid]
+    if len(valid) <= 2:
+        return valid + invalid
+    n = len(valid)
     graph = [[0.0] * n for _ in range(n)]
     for i in range(n):
         for j in range(i + 1, n):
-            d = _haversine_km(places[i].get("lat", 0), places[i].get("lon", 0),
-                              places[j].get("lat", 0), places[j].get("lon", 0))
+            d = _haversine_km(valid[i].get("lat", 0), valid[i].get("lon", 0),
+                              valid[j].get("lat", 0), valid[j].get("lon", 0))
             graph[i][j] = d
             graph[j][i] = d
     remaining = set(range(1, n))
@@ -782,7 +786,7 @@ def _dijkstra_order(places: List[Dict]) -> List[Dict]:
         order.append(nxt)
         remaining.remove(nxt)
         current = nxt
-    return _two_opt([places[i] for i in order])
+    return _two_opt([valid[i] for i in order]) + invalid
 
 
 def _nearest_neighbor_order(places: List[Dict]) -> List[Dict]:

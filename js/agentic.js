@@ -168,7 +168,7 @@ async function startAgenticWizard(dest, duration, budget, data) {
 
     const originMsg = origin ? ` from <strong>${origin}</strong>` : '';
     showAgentPrompt(
-        `Your <strong>${duration}-day ${dest}</strong> itinerary${originMsg} is ready! I can now help you book <strong>flights, trains, hotels, and local transport</strong>. Prices include live web hints plus provider links. What would you like to do first?`,
+        `Your <strong>${duration}-day ${dest}</strong> itinerary${originMsg} is ready! I can now help you book <strong>flights, trains, hotels, and local transport</strong>. Prices open directly on provider links so you can see exact live fares. What would you like to do first?`,
         `<button class="btn btn-primary btn-sm" onclick="agenticSearchFlights()"><i class="fas fa-plane"></i> Search Flights</button>
          <button class="btn btn-sm" style="background:rgba(6,182,212,0.15);color:#06b6d4" onclick="agenticSearchTrains()"><i class="fas fa-train"></i> Search Trains</button>
          <button class="btn btn-sm" style="background:rgba(16,185,129,0.15);color:#10b981" onclick="agenticSearchHotels()"><i class="fas fa-hotel"></i> Search Hotels</button>
@@ -219,7 +219,7 @@ window.agenticSearchFlights = async function() {
             agenticState.tripId = data.trip_id || agenticState.tripId;
             renderFlightResults(data.flights);
             showAgentPrompt(
-                `✈️ <strong>Flight Agent found ${data.flights.length} options!</strong> Prices use live web hints + booking links. Pick any option.`,
+                `✈️ <strong>Flight Agent found ${data.flights.length} options!</strong> Prices are shown on provider links for exact live fares. Pick any option.`,
                 `<button class="btn btn-sm" style="background:rgba(6,182,212,0.15);color:#06b6d4" onclick="agenticSearchTrains()"><i class="fas fa-train"></i> Search Trains</button>
                  <button class="btn btn-sm" style="background:rgba(16,185,129,0.15);color:#10b981" onclick="agenticSearchHotels()"><i class="fas fa-arrow-right"></i> Skip → Hotels</button>`
             );
@@ -359,7 +359,7 @@ window.agenticSearchHotels = async function() {
             agenticState.results.hotels = data.hotels;
             renderHotelResults(data.hotels);
             showAgentPrompt(
-                `🏨 <strong>Hotel Agent found ${data.hotels.length} options!</strong> Prices use live web hints + booking links. Pick a hotel or skip to transport.`,
+                `🏨 <strong>Hotel Agent found ${data.hotels.length} options!</strong> Open provider links to view exact live room rates. Pick a hotel or skip to transport.`,
                 `<button class="btn btn-sm" style="background:rgba(245,158,11,0.15);color:#f59e0b" onclick="agenticSearchCabs()"><i class="fas fa-arrow-right"></i> Skip → Transport</button>`
             );
             if (shouldAutoSelect()) {
@@ -487,7 +487,7 @@ window.agenticSearchCabs = async function() {
             agenticState.results.cabs = data.cabs;
             renderCabResults(data.cabs);
             showAgentPrompt(
-                `🚗 <strong>Transport Agent found ${data.cabs.length} options!</strong> Prices use live web hints + booking links. Select one or go to review.`,
+                `🚗 <strong>Transport Agent found ${data.cabs.length} options!</strong> Open provider links to view exact live cab fares. Select one or go to review.`,
                 `<button class="btn btn-sm" style="background:rgba(139,92,246,0.15);color:#8b5cf6" onclick="agenticSkipToReview()"><i class="fas fa-arrow-right"></i> Skip → Review</button>`
             );
             if (shouldAutoSelect()) {
@@ -533,7 +533,7 @@ function renderCabResults(cabs) {
             </div>
             <div class="cab-price">
                 <div class="cab-price-val">${getPriceLabel(c)}</div>
-                <div style="font-size:0.65rem;color:var(--text-3)">Includes live web hint</div>
+                <div style="font-size:0.65rem;color:var(--text-3)">Live fare in provider app</div>
             </div>
         </div>
     `).join('');
@@ -593,7 +593,7 @@ window.agenticSearchTrains = async function() {
             agenticState.results.trains = data.trains;
             renderTrainResults(data.trains);
             showAgentPrompt(
-                `🚂 <strong>Found ${data.trains.length} trains!</strong> Prices use live web hints + booking links. Select one or proceed.`,
+                `🚂 <strong>Found ${data.trains.length} trains!</strong> Open provider links to view exact live train fares. Select one or proceed.`,
                 `<button class="btn btn-sm" style="background:rgba(16,185,129,0.15);color:#10b981" onclick="agenticSearchHotels()"><i class="fas fa-arrow-right"></i> Next → Hotels</button>`
             );
             if (shouldAutoSelect()) {

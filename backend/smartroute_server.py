@@ -129,7 +129,41 @@ async def fetch_google_photo_fast(name: str, city: str = "") -> str:
         return _photo_cache[cache_key]
 
     clean_name = re.sub(r'\s*\(.*?\)\s*', '', name).strip()
-    queries_to_try = [f"{clean_name} {city}".strip(), f"{clean_name} landmark", clean_name]
+
+    # Prefer Google Places photo when API key is configured (most accurate per place)
+    if GOOGLE_PLACES_API_KEY:
+        try:
+            text_q = f"{clean_name}, {city}".strip(", ")
+            async with httpx.AsyncClient(timeout=7, headers=HEADERS, follow_redirects=True) as client:
+                resp = await client.get(
+                    "https://maps.googleapis.com/maps/api/place/findplacefromtext/json",
+                    params={
+                        "input": text_q,
+                        "inputtype": "textquery",
+                        "fields": "name,place_id,photos",
+                        "key": GOOGLE_PLACES_API_KEY,
+                    },
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    candidates = data.get("candidates", [])
+                    if candidates and candidates[0].get("photos"):
+                        ref = candidates[0]["photos"][0].get("photo_reference", "")
+                        if ref:
+                            photo_url = (
+                                "https://maps.googleapis.com/maps/api/place/photo"
+                                f"?maxwidth=1200&photo_reference={quote(ref)}&key={GOOGLE_PLACES_API_KEY}"
+                            )
+                            _photo_cache[cache_key] = photo_url
+                            return photo_url
+        except Exception:
+            pass
+
+    queries_to_try = [
+        f"{clean_name} {city} tourist attraction real photo".strip(),
+        f"{clean_name} {city} place photo".strip(),
+        f"{clean_name} {city}".strip(),
+    ]
 
     img_re = re.compile(r"https://encrypted-tbn0\.gstatic\.com/images\?q=tbn:[^\"'\\]+")
     for query in queries_to_try:
@@ -2274,7 +2308,22 @@ async def generate_trip(request: TripRequest):
             ordered = [places[i] for i in order]
             return _two_opt(ordered)
         
-        sorted_attractions = sorted(attractions, key=lambda x: (-x.get("quality", 1), -x.get("rating", 0)))
+        center_lat = geo.get("lat", 0) if geo else 0
+        center_lon = geo.get("lon", 0) if geo else 0
+
+        def _has_valid_coord(a):
+            return abs(float(a.get("lat", 0))) > 0.001 and abs(float(a.get("lon", 0))) > 0.001
+
+        def _score_attr(a):
+            quality = a.get("quality", 1)
+            rating = a.get("rating", 4.0)
+            if _has_valid_coord(a):
+                dist = _haversine_km(center_lat, center_lon, float(a.get("lat", 0)), float(a.get("lon", 0)))
+            else:
+                dist = 999
+            return (quality * 2.5 + rating * 2.0) - min(dist, 35) * 0.18
+
+        sorted_attractions = sorted(attractions, key=lambda x: _score_attr(x), reverse=True)
         acts_per_day = max(3, min(5, len(sorted_attractions) // max(duration, 1)))
         
         days = []
@@ -2283,30 +2332,26 @@ async def generate_trip(request: TripRequest):
         
         # Global used-names set ensures ZERO duplicates across ALL days
         used_names = set()
-        
-        # Phase 1: Assign attractions to days (quality-sorted distribution)
+        target_total = min(len(sorted_attractions), acts_per_day * duration)
+        chosen_global = []
+        for attr in sorted_attractions:
+            if attr["name"] in used_names:
+                continue
+            chosen_global.append(attr)
+            used_names.add(attr["name"])
+            if len(chosen_global) >= target_total:
+                break
+
+        # Global route optimization first, then split sequentially by day
+        globally_ordered = _dijkstra_route_order(chosen_global)
         all_day_selections = []
         for day_num in range(duration):
-            selected = []
-            for attr in sorted_attractions:
-                if attr["name"] not in used_names and len(selected) < acts_per_day:
-                    selected.append(attr)
-                    used_names.add(attr["name"])
-            
-            # If we've used all attractions and still need more days
-            if len(selected) < 2 and len(used_names) >= len(sorted_attractions):
-                remaining = [a for a in sorted_attractions if a["name"] not in {s["name"] for s in selected}]
-                if not remaining:
-                    remaining = sorted_attractions
-                for attr in remaining:
-                    if len(selected) >= 3:
-                        break
-                    if attr["name"] not in {s["name"] for s in selected}:
-                        selected.append(attr)
-            
-            # Phase 2: Reorder attractions using Dijkstra shortest-path expansion for efficient routing
-            selected = _dijkstra_route_order(selected)
-            all_day_selections.append(selected)
+            start_idx = day_num * acts_per_day
+            end_idx = start_idx + acts_per_day
+            day_chunk = globally_ordered[start_idx:end_idx]
+            # refine again within day
+            day_chunk = _dijkstra_route_order(day_chunk)
+            all_day_selections.append(day_chunk)
         
         for day_num in range(duration):
             date = start + timedelta(days=day_num)
@@ -2985,7 +3030,7 @@ async def _search_flights(req: FlightSearchRequest) -> List[Dict]:
 
     flights = []
     live_hint = await fetch_live_price_hint(
-        f"{origin_city} to {dest_city} flight ticket price {req.departure_date or ''}"
+        f"{origin_city} to {dest_city} flight fare today {req.departure_date or ''}"
     )
     dep_times = ["06:00", "08:30", "10:15", "12:40", "14:55", "17:20", "20:05", "22:30"]
     # Deterministic selection based on route
@@ -3008,11 +3053,7 @@ async def _search_flights(req: FlightSearchRequest) -> List[Dict]:
         arr_h = (dep_h + dur_h + (dep_min + dur_m) // 60) % 24
         arr_m = (dep_min + dur_m) % 60
         # Each airline has its own price variation (deterministic per airline)
-        price_mult = [0.92, 1.0, 0.88, 1.15, 1.05, 0.95][i % 6]
-        price = round(base * price_mult, -1)
-        if live_hint.get("price"):
-            variance = (i - 2) * 450
-            price = max(1500, live_hint["price"] + variance)
+        price = 0
         stops = 0 if dur_h <= 3 else (1 if i % 3 != 0 else 0)
         
         # Build provider booking URLs
@@ -3041,8 +3082,8 @@ async def _search_flights(req: FlightSearchRequest) -> List[Dict]:
             "stops": stops,
             "stop_info": "" if stops == 0 else ["via Mumbai", "via Delhi", "via Bangalore", "via Hyderabad"][(route_seed + i) % 4],
             "price": int(price),
-            "price_label": f"₹{int(price):,}",
-            "price_note": "Live market hint from web snippets + provider links",
+            "price_label": _provider_price_label("Live fare on provider"),
+            "price_note": "Open provider links for exact live fare (price not guessed)",
             "live_price_source": live_hint.get("url") or booking_urls["google_flights"],
             "cabin_class": req.cabin_class,
             "seats_left": 4 + abs(hash(f"{airline['code']}{dep}")) % 25,
@@ -3113,7 +3154,7 @@ async def _search_hotels(req: HotelSearchRequest) -> List[Dict]:
                     "Bar/Lounge", "Restaurant", "24hr Front Desk", "Laundry", "EV Charging"]
     hotels = []
     live_hint = await fetch_live_price_hint(
-        f"{req.destination} hotel price per night {req.check_in}"
+        f"{req.destination} hotel price tonight"
     )
     # Deterministic selection based on destination
     dest_seed = abs(hash(req.destination))
@@ -3142,18 +3183,16 @@ async def _search_hotels(req: HotelSearchRequest) -> List[Dict]:
             "trivago": f"https://www.trivago.in/en-IN/srl?search={dest_enc}",
         }
         
-        base_price = h["base"]
-        if live_hint.get("price"):
-            base_price = max(700, int(live_hint["price"] * (0.65 + idx * 0.12)))
-        total_price = base_price * nights
+        base_price = 0
+        total_price = 0
         hotels.append({
             "id": _gen_id("HT"),
             "name": f'{h["name"]} {req.destination}',
             "stars": stars,
             "price_per_night": int(base_price),
             "total_price": int(total_price),
-            "price_label": f"₹{int(base_price):,}",
-            "price_note": "Live market hint from web snippets + provider links",
+            "price_label": _provider_price_label("Live hotel rate on provider"),
+            "price_note": "Open provider links for exact room rates (price not guessed)",
             "live_price_source": live_hint.get("url") or h.get("booking_tpl", ""),
             "nights": nights,
             "check_in": req.check_in,
@@ -3198,7 +3237,7 @@ async def _search_cabs(req: CabSearchRequest) -> List[Dict]:
     }
     pool = cab_types.get(req.cab_type, cab_types["sedan"])
     cabs = []
-    live_hint = await fetch_live_price_hint(f"{req.destination} cab fare for {req.duration_hours} hour")
+    live_hint = await fetch_live_price_hint(f"{req.destination} taxi fare now")
     for idx, c in enumerate(pool):
         # Deterministic km estimate: ~25 km per hour of city driving
         est_km = req.duration_hours * 25
@@ -3207,17 +3246,15 @@ async def _search_cabs(req: CabSearchRequest) -> List[Dict]:
         all_features = ["AC", "GPS", "Music system", "Water bottle", "Charger", "Child seat"]
         n_feat = 3 + (idx % 3)
         
-        est_total = int(c["base"] + c["per_km"] * est_km)
-        if live_hint.get("price"):
-            est_total = max(120, int(live_hint["price"] * (0.7 + 0.1 * idx)))
+        est_total = 0
         cabs.append({
             "id": _gen_id("CB"),
             "provider": c["provider"],
             "icon": c["icon"],
             "cab_type": req.cab_type,
             "price": est_total,
-            "price_label": f"₹{est_total:,}",
-            "price_note": "Live market hint from web snippets + provider links",
+            "price_label": _provider_price_label("Live cab fare in app"),
+            "price_note": "Open provider links/apps for exact fare (price not guessed)",
             "live_price_source": live_hint.get("url") or _get_cab_booking_url(c["provider"], req.destination or ""),
             "duration_hours": req.duration_hours,
             "estimated_km": est_km,
@@ -3344,7 +3381,7 @@ async def _search_trains(req: TrainSearchRequest) -> List[Dict]:
     trains = []
     
     live_hint = await fetch_live_price_hint(
-        f"{origin_city} to {dest_city} train ticket {req.train_class} fare {req.departure_date or ''}"
+        f"{origin_city} to {dest_city} train fare {req.train_class} today"
     )
     for i in range(n_trains):
         train = available[i % len(available)]
@@ -3368,17 +3405,7 @@ async def _search_trains(req: TrainSearchRequest) -> List[Dict]:
         
         # Pricing: IRCTC distance-based formula
         # SL: ~₹0.35/km, 3AC: ~₹0.75/km, 2AC: ~₹1.1/km, 1AC: ~₹2.0/km, CC: ~₹0.9/km, EC: ~₹1.5/km
-        if route_dist > 0:
-            per_km_rates = {"SL": 0.35, "3AC": 0.75, "2AC": 1.1, "1AC": 2.0, "CC": 0.9, "EC": 1.5}
-            base_fare = 50 + route_dist * per_km_rates.get(req.train_class, 0.75)
-            # Train type premium
-            type_mult = {"RAJ": 1.5, "SHT": 1.3, "DUR": 1.4, "VB": 1.8, "GR": 0.9, "SF": 1.1, "EXP": 1.0, "JS": 1.0}
-            price = round(base_fare * type_mult.get(train["code"], 1.0) * req.passengers, -1)
-        else:
-            mult = train["class_mult"].get(req.train_class, 1.0)
-            price = round(train["base"] * mult * req.passengers, -1)
-        if live_hint.get("price"):
-            price = max(100, int(live_hint["price"] * (0.82 + i * 0.08)))
+        price = 0
         
         # Use known train number/name if available, else generate deterministic
         if i < len(known):
@@ -3440,8 +3467,8 @@ async def _search_trains(req: TrainSearchRequest) -> List[Dict]:
             "train_class": req.train_class,
             "available_classes": avail_classes,
             "price": int(price),
-            "price_label": f"₹{int(price):,}",
-            "price_note": "Live market hint from web snippets + provider links",
+            "price_label": _provider_price_label("Live train fare on provider"),
+            "price_note": "Open provider links for exact ticket fare (price not guessed)",
             "live_price_source": live_hint.get("url") or booking_urls["irctc"],
             "availability": availability,
             "pantry": train["speed"] == "fast",
@@ -3492,6 +3519,10 @@ async def fetch_live_price_hint(query: str) -> Dict[str, Any]:
     except Exception:
         pass
     return {"price": None, "url": ""}
+
+
+def _provider_price_label(default_text: str = "Live fare on provider") -> str:
+    return default_text
 
 # ---------- Payment processing (simulated) ----------
 def _process_payment(req: PaymentRequest) -> Dict:
